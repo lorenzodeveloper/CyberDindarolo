@@ -43,6 +43,8 @@ urlpatterns = [
     path('stock/<int:piggybank>/', views.get_stock_in_pb, name='stock_pb'),
     path('stock/<int:piggybank>/<int:product>/', views.get_prod_stock_in_pb, name='prod_stock_pb'),
 
+    path('users/inside/<int:piggybank>/', views.get_users_in_pb, name='users_pb'),
+
 
     # TODO: insert new piggybank                                            -> OK
     # TODO: insert new product (PRODUCT TABLE)                              -> OK
@@ -59,7 +61,7 @@ urlpatterns = [
 
 
     # TODO: get user profile info by id -> returns everything except pwd    -> OK
-    # TODO: get users in piggybank
+    # TODO: get users in piggybank                                          -> OK
     # TODO: get invitations of user
     # TODO: get purchases in piggybank                                      -> OK
     # TODO: get entries in piggybank                                        -> OK
@@ -70,8 +72,8 @@ urlpatterns = [
     # TODO: edit piggybank                                                   -> OK
 
 
-    # TODO: remove entry (only if the entered product wasn't bought by anyone in pb)
-    # TODO: remove purchase (only the last one and if the purchased product was not refilled meanwhile)
+    # TODO: remove entry (only if the entered product wasn't bought by anyone in pb)    -> OK
+    # TODO: remove purchase (only the last one and if the purchased product was not refilled meanwhile) -> OK
     #       In this way we avoid edit entry/purchase
     # TODO: remove product (only if the entered product wasn't bought by anyone in any pb) -> OK
 ]

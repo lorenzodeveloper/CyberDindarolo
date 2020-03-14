@@ -3,7 +3,6 @@ import datetime
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User as AuthUser
 from django.core.exceptions import ObjectDoesNotExist
-from django.core.serializers.base import SerializationError
 from django.db import IntegrityError, models, transaction, OperationalError
 from django.db.models import ExpressionWrapper, DecimalField, BigIntegerField
 from django.utils import timezone
@@ -17,11 +16,10 @@ from rest_framework.status import (
     HTTP_400_BAD_REQUEST,
     HTTP_404_NOT_FOUND,
     HTTP_200_OK,
-    HTTP_201_CREATED, HTTP_403_FORBIDDEN, HTTP_202_ACCEPTED, HTTP_204_NO_CONTENT, HTTP_500_INTERNAL_SERVER_ERROR,
-    HTTP_409_CONFLICT)
+    HTTP_201_CREATED, HTTP_403_FORBIDDEN, HTTP_202_ACCEPTED, HTTP_204_NO_CONTENT, HTTP_409_CONFLICT)
 
-from api.my_helpers import is_blank, is_string_valid_email
 from api.models import UserProfile, PiggyBank, Product, Purchase, Entry, Stock, Participate
+from api.my_helpers import is_blank, is_string_valid_email
 from api.serializers import UserProfileSerializer, PiggyBankSerializer, ProductSerializer, UserSerializer, \
     EntrySerializer, PurchaseSerializer, StockSerializer
 
@@ -42,10 +40,6 @@ def login(request):
     if not user:
         return Response({'error': 'Invalid Credentials'},
                         status=HTTP_404_NOT_FOUND)
-
-    # if not user.is_active:
-    #     return Response({'error': 'Your account is no longer valid.'},
-    #                     status=HTTP_403_FORBIDDEN)
 
     token, created = Token.objects.get_or_create(user=user)
 
@@ -69,7 +63,7 @@ def login(request):
 @permission_classes((IsAuthenticated,))
 def logout(request):
     """
-    An APIview for logging out.
+    An APIView for logging out.
     """
     request.user.auth_token.delete()
     return Response({'message': 'Succesfully logged out. See you next time.'},
@@ -81,7 +75,7 @@ def logout(request):
 @permission_classes((AllowAny,))
 def register(request):
     """
-    An APIview for signing up new User instances.
+    An APIView for signing up new User instances.
     """
     username = request.data.get("username")
     email = request.data.get("email")
@@ -149,21 +143,24 @@ def get_users_by_pattern(request, pattern):
 
     valid_email, exc = is_string_valid_email(pattern)
     if valid_email:
-        queryset = UserProfile.objects.filter(auth_user__email=pattern,
-                                              auth_user__is_active=True).select_related()
+        users = UserProfile.objects.filter(auth_user__email=pattern,
+                                           auth_user__is_active=True).select_related()
     else:
-        queryset = UserProfile.objects.filter(auth_user__username__contains=pattern,
-                                              auth_user__is_active=True).select_related()
+        users = UserProfile.objects.filter(auth_user__username__contains=pattern,
+                                           auth_user__is_active=True).select_related()
 
-    users = []
-    for q in queryset:
-        users.append(UserProfileSerializer(q).data)
+    users_serialized_list = []
+    for u in users:
+        data = UserProfileSerializer(u).data
+        # Privacy ...
+        data.pop("piggybanks")
+        users_serialized_list.append(data)
 
-    if len(users) == 0:
+    if len(users_serialized_list) == 0:
         return Response({'message': 'No users found with that pattern'},
                         status=HTTP_404_NOT_FOUND)
 
-    return Response(users,
+    return Response(users_serialized_list,
                     status=HTTP_200_OK)
 
 
@@ -179,18 +176,18 @@ def get_piggybanks_by_pattern(request, pattern):
         return Response({'error': 'Pattern must be 3 chars long at least'},
                         status=HTTP_400_BAD_REQUEST)
 
-    queryset = PiggyBank.objects.filter(pb_name__contains=pattern,
-                                        participate__participant__auth_user=request.user).select_related()
+    piggybanks = PiggyBank.objects.filter(pb_name__contains=pattern,
+                                          participate__participant__auth_user=request.user).select_related()
 
-    piggybanks = []
-    for q in queryset:
-        piggybanks.append(PiggyBankSerializer(q).data)
+    piggybanks_serialized_list = []
+    for pb in piggybanks:
+        piggybanks_serialized_list.append(PiggyBankSerializer(pb).data)
 
-    if len(piggybanks) == 0:
+    if len(piggybanks_serialized_list) == 0:
         return Response({'message': 'No piggybanks found with that pattern'},
                         status=HTTP_404_NOT_FOUND)
 
-    return Response(piggybanks,
+    return Response(piggybanks_serialized_list,
                     status=HTTP_200_OK)
 
 
@@ -201,8 +198,6 @@ class PiggyBankViewSet(viewsets.ModelViewSet):
     """
     serializer_class = PiggyBankSerializer
     queryset = PiggyBank.objects.all()
-    # Delete is handled apart
-    # Verify if permission IsPBOwner works in patch method -> VERIFIED IT DOESN'T WORK
     http_method_names = ['get', 'post', 'patch', 'delete']
 
     def get_queryset(self):
@@ -239,7 +234,6 @@ class ProductViewSet(viewsets.ModelViewSet):
     """
     serializer_class = ProductSerializer
     queryset = Product.objects.all()
-    # Delete is handled apart -> OK
     http_method_names = ['get', 'post', 'patch', 'delete']
 
     def destroy(self, request, *args, **kwargs):
@@ -262,9 +256,15 @@ class UserProfileViewSet(viewsets.ModelViewSet):
     """
     serializer_class = UserProfileSerializer
     queryset = UserProfile.objects.filter(auth_user__is_active=True)
-    # Delete is handled apart -> OK
+    # TODO: Handle password change mechanism
     # Create user means signup
     http_method_names = ['get', 'patch', 'delete']
+
+    def get_queryset(self):
+        # A user can see all details only for himself
+        queryset = self.queryset
+        query_set = queryset.filter(pk=self.request.user)
+        return query_set
 
     def partial_update(self, request, *args, **kwargs):
         try:
@@ -309,13 +309,14 @@ class UserProfileViewSet(viewsets.ModelViewSet):
 class EntryViewSet(viewsets.ModelViewSet):
     """
        A viewset for viewing and editing Entry instances.
-       """
+    """
     serializer_class = EntrySerializer
     queryset = Entry.objects.filter(entered_by__auth_user__is_active=True)
 
     http_method_names = ['get', 'post', 'delete']
 
     def get_queryset(self):
+        # Entries filtered per active user
         queryset = self.queryset
         query_set = queryset.filter(entered_by_id=self.request.user.id)
         return query_set
@@ -360,6 +361,7 @@ class EntryViewSet(viewsets.ModelViewSet):
                     .order_by('entry__id') \
                     .values('entry__id', 'entry_date', 'entered_by', 'tot_cost', 'tot_pieces', 'unitary_cost')
 
+                # If product is in stock, we have to update it
                 try:
                     current_stock_in_pb = Stock.objects.select_for_update(). \
                         filter(product_id=request_product_id,
@@ -396,6 +398,7 @@ class EntryViewSet(viewsets.ModelViewSet):
                 new_stock.save()
                 participate_instance.save()
                 # To prevent conflict we need to fake an update of the stock entry
+                # (to trigger dirty read problem)
                 if current_stock_in_pb is not None:
                     current_stock_in_pb.save()
                 headers = self.get_success_headers(serializer.data)
@@ -455,13 +458,14 @@ class EntryViewSet(viewsets.ModelViewSet):
 class PurchaseViewSet(viewsets.ModelViewSet):
     """
        A viewset for viewing and editing Purchase instances.
-       """
+    """
     serializer_class = PurchaseSerializer
     queryset = Purchase.objects.filter(purchaser__auth_user__is_active=True)
 
     http_method_names = ['get', 'post', 'delete']
 
     def get_queryset(self):
+        # Purchases filtered per active user
         queryset = self.queryset
         query_set = queryset.filter(purchaser_id=self.request.user.id)
         return query_set
@@ -589,6 +593,9 @@ class PurchaseViewSet(viewsets.ModelViewSet):
 @api_view(["GET"])
 @permission_classes((IsAuthenticated,))
 def get_stock_in_pb(request, piggybank):
+    """
+       An APIView for viewing the stock of a pb instance.
+    """
     request_piggybank = PiggyBank.objects.get(pk=piggybank)
     user_piggybanks = PiggyBank.objects.filter(participate__participant__auth_user=request.user)
     if request_piggybank not in user_piggybanks:
@@ -607,6 +614,9 @@ def get_stock_in_pb(request, piggybank):
 @api_view(["GET"])
 @permission_classes((IsAuthenticated,))
 def get_prod_stock_in_pb(request, piggybank, product):
+    """
+       An APIView for viewing the stock of a product in pb instance.
+    """
     request_piggybank = PiggyBank.objects.get(pk=piggybank)
     request_product = Product.objects.get(pk=product)
     user_piggybanks = PiggyBank.objects.filter(participate__participant__auth_user=request.user)
@@ -618,5 +628,31 @@ def get_prod_stock_in_pb(request, piggybank, product):
     serialized_list = []
     for st in stock:
         serialized_list.append(StockSerializer(st).data)
+    return Response(serialized_list,
+                    status=HTTP_200_OK)
+
+
+@csrf_exempt
+@api_view(["GET"])
+@permission_classes((IsAuthenticated,))
+def get_users_in_pb(request, piggybank):
+    """
+       An APIView for viewing users inside pb..
+    """
+    request_piggybank = PiggyBank.objects.get(pk=piggybank)
+    user_piggybanks = PiggyBank.objects.filter(participate__participant__auth_user=request.user)
+    if request_piggybank not in user_piggybanks:
+        return Response({"error": "You don't have the permission to do that."},
+                        status=HTTP_403_FORBIDDEN)
+
+    user_inside_pb = UserProfile.objects.filter(participate__piggybank=piggybank)
+
+    serialized_list = []
+    for u in user_inside_pb:
+        data = UserProfileSerializer(u).data
+        # Privacy ...
+        data.pop("piggybanks")
+        serialized_list.append(data)
+
     return Response(serialized_list,
                     status=HTTP_200_OK)
