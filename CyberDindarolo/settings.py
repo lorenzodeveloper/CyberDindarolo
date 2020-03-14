@@ -13,6 +13,8 @@ https://docs.djangoproject.com/en/2.2/ref/settings/
 import os
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
+import psycopg2
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Quick-start development settings - unsuitable for production
@@ -83,6 +85,9 @@ DATABASES = {
         'PASSWORD': 'MyPassword1!',
         'HOST': 'localhost',
         'PORT': '',  # 5432
+        'OPTIONS': {
+                    'isolation_level': psycopg2.extensions.ISOLATION_LEVEL_REPEATABLE_READ,
+                },
     }
 }
 

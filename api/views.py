@@ -2,7 +2,9 @@ import datetime
 
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User as AuthUser
-from django.db import IntegrityError
+from django.core.exceptions import ObjectDoesNotExist
+from django.core.serializers.base import SerializationError
+from django.db import IntegrityError, models, transaction, OperationalError
 from django.db.models import ExpressionWrapper, DecimalField, BigIntegerField
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -15,7 +17,8 @@ from rest_framework.status import (
     HTTP_400_BAD_REQUEST,
     HTTP_404_NOT_FOUND,
     HTTP_200_OK,
-    HTTP_201_CREATED, HTTP_403_FORBIDDEN, HTTP_202_ACCEPTED, HTTP_204_NO_CONTENT)
+    HTTP_201_CREATED, HTTP_403_FORBIDDEN, HTTP_202_ACCEPTED, HTTP_204_NO_CONTENT, HTTP_500_INTERNAL_SERVER_ERROR,
+    HTTP_409_CONFLICT)
 
 from api.my_helpers import is_blank, is_string_valid_email
 from api.models import UserProfile, PiggyBank, Product, Purchase, Entry, Stock, Participate
@@ -318,99 +321,134 @@ class EntryViewSet(viewsets.ModelViewSet):
         return query_set
 
     def create(self, request, *args, **kwargs):
-        data = request.data.copy()
-        piggybank = PiggyBank.objects.get(pk=data['piggybank'])
-        user_piggybanks = PiggyBank.objects.filter(participate__participant__auth_user=request.user)
-        if piggybank not in user_piggybanks:
-            return Response({"error": "You don't have the permission to do that."},
-                            status=HTTP_403_FORBIDDEN)
-        data['entered_by'] = str(self.request.user.id)
-        utc_now = str(timezone.now())
-        data['entry_date'] = utc_now
-        serializer = self.get_serializer(data=data)
-        serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
+        try:
+            with transaction.atomic():
+                # Get request data copy in order to be able to modify it
+                data = request.data.copy()
+                request_piggybank = PiggyBank.objects.get(pk=data['piggybank'])
+                request_product_id = data.get('product')
 
-        from django.db import models
-        # The equivalent of a view...
-        extended_entry_view = Entry.objects.filter(entered_by=self.request.user.id,
-                                                   entry_date=utc_now,
-                                                   product=data.get('product'),
-                                                   piggybank=data.get('piggybank')).select_related() \
-            .annotate(entry__id=models.F('pk')) \
-            .annotate(tot_pieces=ExpressionWrapper(models.F('set_quantity') * models.F('product__pieces'),
-                                                   output_field=BigIntegerField())) \
-            .annotate(tot_cost=ExpressionWrapper(models.F('set_quantity') * models.F('entry_price'),
-                                                 output_field=DecimalField(max_digits=6, decimal_places=2))) \
-            .annotate(unitary_cost=ExpressionWrapper(models.F('entry_price') / models.F('product__pieces'),
-                                                     output_field=DecimalField(max_digits=6, decimal_places=2))) \
-            .order_by('entry__id') \
-            .values('entry__id', 'entry_date', 'entered_by', 'tot_cost', 'tot_pieces', 'unitary_cost')
+                user_piggybanks = PiggyBank.objects.filter(participate__participant__auth_user=request.user)
+                if request_piggybank not in user_piggybanks:
+                    return Response({"error": "You don't have the permission to do that."},
+                                    status=HTTP_403_FORBIDDEN)
+                if request_piggybank.closed:
+                    return Response({"error": "You don't have the permission to do that. Piggybank is closed"},
+                                    status=HTTP_403_FORBIDDEN)
 
-        current_stock_in_pb = Stock.objects.filter(piggybank=data.get('piggybank'),
-                                                   product=data.get('product')).order_by('-entry_date')
+                # Set other fields for this request
+                data['entered_by'] = str(self.request.user.id)
+                utc_now = str(timezone.now())
+                data['entry_date'] = utc_now
+                serializer = self.get_serializer(data=data)
+                serializer.is_valid(raise_exception=True)
+                self.perform_create(serializer)
 
-        # If the product is already in stock, simply update stock with new avg price
-        # otherwise insert product in stock
-        if len(current_stock_in_pb) != 0:
-            old_unitary_cost = current_stock_in_pb[0].unitary_price
-            old_pieces = current_stock_in_pb[0].pieces
+                # Get extended entry
+                extended_entry_view = Entry.objects.select_for_update().filter(entered_by=self.request.user.id,
+                                                                               entry_date=utc_now,
+                                                                               product_id=request_product_id,
+                                                                               piggybank=request_piggybank.id) \
+                    .annotate(entry__id=models.F('pk')) \
+                    .annotate(tot_pieces=ExpressionWrapper(models.F('set_quantity') * models.F('product__pieces'),
+                                                           output_field=BigIntegerField())) \
+                    .annotate(tot_cost=ExpressionWrapper(models.F('set_quantity') * models.F('entry_price'),
+                                                         output_field=DecimalField(max_digits=6, decimal_places=2))) \
+                    .annotate(unitary_cost=ExpressionWrapper(models.F('entry_price') / models.F('product__pieces'),
+                                                             output_field=
+                                                             DecimalField(max_digits=6, decimal_places=2))) \
+                    .order_by('entry__id') \
+                    .values('entry__id', 'entry_date', 'entered_by', 'tot_cost', 'tot_pieces', 'unitary_cost')
 
-            new_pieces = old_pieces + extended_entry_view[0].get('tot_pieces')
-            new_unitary_cost = (old_unitary_cost * old_pieces +
-                                extended_entry_view[0].get('tot_cost')) / new_pieces
+                try:
+                    current_stock_in_pb = Stock.objects.select_for_update(). \
+                        filter(product_id=request_product_id,
+                               piggybank_id=request_piggybank.id).latest('entry_date')
+                except ObjectDoesNotExist as oe:
+                    current_stock_in_pb = None
 
-            new_stock = Stock(piggybank_id=data.get('piggybank'), entry_date=utc_now,
-                              entered_by_id=self.request.user.id,
-                              product_id=data.get('product'), unitary_price=new_unitary_cost, pieces=new_pieces)
-        else:
-            new_stock = Stock(piggybank_id=data.get('piggybank'), entry_date=utc_now,
-                              entered_by_id=self.request.user.id,
-                              product_id=data.get('product'), unitary_price=extended_entry_view[0].get('unitary_cost'),
-                              pieces=extended_entry_view[0].get('tot_pieces'))
+                # If the product is already in stock, simply update stock with new avg price
+                # otherwise insert product in stock
+                if current_stock_in_pb is not None:
+                    old_unitary_cost = current_stock_in_pb.unitary_price
+                    old_pieces = current_stock_in_pb.pieces
 
-        participate_instance = Participate.objects.get(participant_id=request.user.id,
-                                                       piggybank_id=piggybank.id)
-        participate_instance.credit = participate_instance.credit + extended_entry_view[0].get('tot_cost')
+                    new_pieces = old_pieces + extended_entry_view[0].get('tot_pieces')
+                    new_unitary_cost = (old_unitary_cost * old_pieces +
+                                        extended_entry_view[0].get('tot_cost')) / new_pieces
 
-        new_stock.save()
-        participate_instance.save()
+                    new_stock = Stock(piggybank_id=data.get('piggybank'), entry_date=utc_now,
+                                      entered_by_id=self.request.user.id,
+                                      product_id=data.get('product'), unitary_price=new_unitary_cost, pieces=new_pieces)
+                else:
+                    new_stock = Stock(piggybank_id=data.get('piggybank'), entry_date=utc_now,
+                                      entered_by_id=self.request.user.id,
+                                      product_id=data.get('product'),
+                                      unitary_price=extended_entry_view[0].get('unitary_cost'),
+                                      pieces=extended_entry_view[0].get('tot_pieces'))
 
-        headers = self.get_success_headers(serializer.data)
-        return Response(serializer.data,
-                        status=HTTP_201_CREATED, headers=headers)
+                # Update user credit
+                participate_instance = Participate.objects.select_for_update().get(participant_id=request.user.id,
+                                                                                   piggybank_id=request_piggybank.id)
+                participate_instance.credit = participate_instance.credit + extended_entry_view[0].get('tot_cost')
+
+                # Commit everything
+                new_stock.save()
+                participate_instance.save()
+                # To prevent conflict we need to fake an update of the stock entry
+                if current_stock_in_pb is not None:
+                    current_stock_in_pb.save()
+                headers = self.get_success_headers(serializer.data)
+                return Response(serializer.data,
+                                status=HTTP_201_CREATED, headers=headers)
+        except OperationalError as e:
+            return Response(
+                {"error": "Ops, it looks like someone is trying to modify the content of this pb at the "
+                          "same time with you. Retry later."},
+                status=HTTP_409_CONFLICT)
 
     def destroy(self, request, *args, **kwargs):
-        entry = self.get_object()
-        if entry.entered_by_id != request.user.id:
-            return Response({"error": "You don't have the permission to do that."},
-                            status=HTTP_403_FORBIDDEN)
-        next_entries = Entry.objects.filter(piggybank_id=entry.piggybank_id,
-                                            entry_date__gt=entry.entry_date,
-                                            product_id=entry.product_id)
-        next_purchases = Purchase.objects.filter(piggybank_id=entry.piggybank_id,
-                                                 purchase_date__gt=entry.entry_date,
-                                                 product_id=entry.product_id)
-        if len(next_entries) != 0 or len(next_purchases) != 0:
-            return Response({"error": "There are entries/purchases that depends on this entry. Get rid of those "
-                                      "before delete."},
-                            status=HTTP_403_FORBIDDEN)
+        try:
+            with transaction.atomic():
+                entry = self.get_object()
+                if entry.entered_by_id != request.user.id:
+                    return Response({"error": "You don't have the permission to do that."},
+                                    status=HTTP_403_FORBIDDEN)
 
-        related_stock = Stock.objects.get(piggybank_id=entry.piggybank_id,
-                                          product_id=entry.product_id,
-                                          entered_by_id=entry.entered_by_id,
-                                          entry_date=entry.entry_date)
+                # If there are entries/purchases that depends on this purchase, we cannot allow the deletion
+                next_entries = Entry.objects.select_for_update().filter(piggybank_id=entry.piggybank_id,
+                                                                        entry_date__gt=entry.entry_date,
+                                                                        product_id=entry.product_id)
+                next_purchases = Purchase.objects.select_for_update().filter(piggybank_id=entry.piggybank_id,
+                                                                             purchase_date__gt=entry.entry_date,
+                                                                             product_id=entry.product_id)
+                if len(next_entries) != 0 or len(next_purchases) != 0:
+                    return Response(
+                        {"error": "There are entries/purchases that depends on this entry. Get rid of those "
+                                  "before delete."},
+                        status=HTTP_403_FORBIDDEN)
+                # Update related stock
+                related_stock = Stock.objects.select_for_update().get(piggybank_id=entry.piggybank_id,
+                                                                      product_id=entry.product_id,
+                                                                      entered_by_id=entry.entered_by_id,
+                                                                      entry_date=entry.entry_date)
+                # Update user credit
+                participate_instance = Participate.objects.select_for_update().get(participant_id=entry.entered_by,
+                                                                                   piggybank_id=entry.piggybank_id)
+                participate_instance.credit = participate_instance.credit - (entry.entry_price * entry.set_quantity)
 
-        participate_instance = Participate.objects.get(participant_id=entry.entered_by,
-                                                       piggybank_id=entry.piggybank_id)
-        participate_instance.credit = participate_instance.credit - (entry.entry_price * entry.set_quantity)
+                # Commit everything
+                entry.delete()
+                related_stock.delete()
+                participate_instance.save()
 
-        entry.delete()
-        related_stock.delete()
-        participate_instance.save()
-
-        return Response({'message': 'Entry succesfully deleted.'},
-                        status=HTTP_204_NO_CONTENT)
+                return Response({'message': 'Entry succesfully deleted.'},
+                                status=HTTP_204_NO_CONTENT)
+        except OperationalError as e:
+            return Response(
+                {"error": "Ops, it looks like someone is trying to modify the content of this pb at the "
+                          "same time with you. Retry later."},
+                status=HTTP_409_CONFLICT)
 
 
 @permission_classes((IsAuthenticated,))
@@ -429,100 +467,138 @@ class PurchaseViewSet(viewsets.ModelViewSet):
         return query_set
 
     def create(self, request, *args, **kwargs):
-        data = request.data.copy()
-        piggybank = PiggyBank.objects.get(pk=data['piggybank'])
-        user_piggybanks = PiggyBank.objects.filter(participate__participant__auth_user=request.user)
-        if piggybank not in user_piggybanks:
-            return Response({"error": "You don't have the permission to do that."},
-                            status=HTTP_403_FORBIDDEN)
-
         try:
-            current_stock_in_pb = Stock.objects.filter(product_id=data.get('product'),
-                                                       piggybank=data.get('piggybank')).order_by('-entry_date')[0]
-        except IndexError as ie:
-            return Response({"error": "Selected product not in stock."},
-                            status=HTTP_403_FORBIDDEN)
+            with transaction.atomic():
+                # Get request data copy in order to be able to modify it
+                data = request.data.copy()
+                request_piggybank = PiggyBank.objects.get(pk=data['piggybank'])
+                request_product_id = data.get('product')
+                request_pieces = int(data.get('pieces'))
 
-        data['purchaser'] = str(self.request.user.id)
-        utc_now = str(timezone.now())
-        data['purchase_date'] = utc_now
-        data['unitary_purchase_price'] = current_stock_in_pb.unitary_price
-        serializer = self.get_serializer(data=data)
-        serializer.is_valid(raise_exception=True)
+                user_piggybanks = PiggyBank.objects.filter(participate__participant__auth_user=request.user)
+                if request_piggybank not in user_piggybanks:
+                    return Response({"error": "You don't have the permission to do that."},
+                                    status=HTTP_403_FORBIDDEN)
+                if request_piggybank.closed:
+                    return Response({"error": "You don't have the permission to do that. Piggybank is closed"},
+                                    status=HTTP_403_FORBIDDEN)
 
-        tot_cost = current_stock_in_pb.unitary_price * int(data.get('pieces'))
+                # If product is in stock, we have to update it
+                try:
+                    current_stock_in_pb = Stock.objects.select_for_update(). \
+                        filter(product_id=request_product_id,
+                               piggybank_id=request_piggybank.id).latest('entry_date')
+                except ObjectDoesNotExist as oe:
+                    return Response({"error": "Selected product not in stock."},
+                                    status=HTTP_403_FORBIDDEN)
 
-        participate_instance = Participate.objects.get(participant_id=request.user.id,
-                                                       piggybank_id=piggybank.id)
+                # Set other fields for this request
+                data['purchaser'] = str(self.request.user.id)
+                utc_now = str(timezone.now())
+                data['purchase_date'] = utc_now
+                data['unitary_purchase_price'] = current_stock_in_pb.unitary_price
+                serializer = self.get_serializer(data=data)
+                serializer.is_valid(raise_exception=True)
 
-        if participate_instance.credit - tot_cost < 0 or current_stock_in_pb.pieces - int(data.get('pieces')) < 0:
-            return Response({"error": "Credit insufficient or product pieces insufficient."},
-                            status=HTTP_403_FORBIDDEN)
+                # Calc cost to update purchaser credit
+                tot_cost = current_stock_in_pb.unitary_price * request_pieces
 
-        self.perform_create(serializer)
+                participate_instance = \
+                    Participate.objects.select_for_update().get(participant_id=request.user.id,
+                                                                piggybank_id=request_piggybank.id)
 
-        # if current_stock_in_pb.pieces - int(data.get('pieces')) != 0:
-        new_stock = Stock(piggybank_id=data.get('piggybank'), entry_date=utc_now,
-                          entered_by_id=self.request.user.id,
-                          product_id=data.get('product'), unitary_price=current_stock_in_pb.unitary_price,
-                          pieces=(current_stock_in_pb.pieces - int(data.get('pieces'))))
-        new_stock.save()
-        """else:
-            Stock.objects.filter(piggybank_id=data.get('piggybank'),
-                                 product_id=data.get('product')).delete()"""
+                if participate_instance.credit - tot_cost < 0 or \
+                        current_stock_in_pb.pieces - int(data.get('pieces')) < 0:
+                    return Response({"error": "Credit insufficient or product pieces insufficient."},
+                                    status=HTTP_403_FORBIDDEN)
 
-        participate_instance.credit = participate_instance.credit - tot_cost
-        participate_instance.save()
+                # if current_stock_in_pb.pieces - int(data.get('pieces')) != 0:
+                # Add stock update in Stock table
+                new_stock = Stock(piggybank_id=request_piggybank.id, entry_date=utc_now,
+                                  entered_by_id=self.request.user.id,
+                                  product_id=request_product_id, unitary_price=current_stock_in_pb.unitary_price,
+                                  pieces=(current_stock_in_pb.pieces - request_pieces))
 
-        headers = self.get_success_headers(serializer.data)
-        return Response(serializer.data,
-                        status=HTTP_201_CREATED, headers=headers)
+                """else:
+                    Stock.objects.filter(piggybank_id=request_piggybank.id,
+                                         request_product_id=request_product_id).delete()"""
+
+                # Update user credit
+                participate_instance.credit = participate_instance.credit - tot_cost
+
+                # To prevent conflict we need to fake an update of the stock entry
+                current_stock_in_pb.save()
+
+                # Commit everything
+                self.perform_create(serializer)
+                new_stock.save()
+                participate_instance.save()
+
+                headers = self.get_success_headers(serializer.data)
+                return Response(serializer.data,
+                                status=HTTP_201_CREATED, headers=headers)
+        except OperationalError as e:
+            return Response({"error": "Ops, it looks like someone is trying to modify the content of this pb at the "
+                                      "same time with you. Retry later."},
+                            status=HTTP_409_CONFLICT)
 
     def destroy(self, request, *args, **kwargs):
-        purchase = self.get_object()
-        if purchase.purchaser_id != request.user.id:
-            return Response({"error": "You don't have the permission to do that."},
-                            status=HTTP_403_FORBIDDEN)
-        next_entries = Entry.objects.filter(piggybank_id=purchase.piggybank_id,
-                                            entry_date__gt=purchase.purchase_date,
-                                            product_id=purchase.product_id)
-        next_purchases = Purchase.objects.filter(piggybank_id=purchase.piggybank_id,
-                                                 purchase_date__gt=purchase.purchase_date,
-                                                 product_id=purchase.product_id)
-        if len(next_entries) != 0 or len(next_purchases) != 0:
-            return Response({"error": "There are entries/purchases that depends on this purchase. Get rid of those "
-                                      "before delete."},
-                            status=HTTP_403_FORBIDDEN)
+        try:
+            with transaction.atomic():
+                purchase = self.get_object()
+                if purchase.purchaser_id != request.user.id:
+                    return Response({"error": "You don't have the permission to do that."},
+                                    status=HTTP_403_FORBIDDEN)
+                # If there are entries/purchases that depends on this purchase, we cannot allow the deletion
+                next_entries = Entry.objects.select_for_update().filter(piggybank_id=purchase.piggybank_id,
+                                                                        entry_date__gt=purchase.purchase_date,
+                                                                        product_id=purchase.product_id)
+                next_purchases = Purchase.objects.select_for_update().filter(piggybank_id=purchase.piggybank_id,
+                                                                             purchase_date__gt=purchase.purchase_date,
+                                                                             product_id=purchase.product_id)
+                if len(next_entries) != 0 or len(next_purchases) != 0:
+                    return Response(
+                        {"error": "There are entries/purchases that depends on this purchase. Get rid of those "
+                                  "before delete."},
+                        status=HTTP_403_FORBIDDEN)
+                # Update the related stock
+                related_stock = Stock.objects.select_for_update().get(piggybank_id=purchase.piggybank_id,
+                                                                      product_id=purchase.product_id,
+                                                                      entered_by_id=purchase.purchaser_id,
+                                                                      entry_date=purchase.purchase_date)
+                # Update user credit
+                participate_instance = Participate.objects.select_for_update().get(participant_id=purchase.purchaser_id,
+                                                                                   piggybank_id=purchase.piggybank_id)
+                participate_instance.credit = participate_instance.credit + (
+                        purchase.unitary_purchase_price * purchase.pieces)
 
-        related_stock = Stock.objects.get(piggybank_id=purchase.piggybank_id,
-                                          product_id=purchase.product_id,
-                                          entered_by_id=purchase.purchaser_id,
-                                          entry_date=purchase.purchase_date)
-
-        participate_instance = Participate.objects.get(participant_id=purchase.purchaser_id,
-                                                       piggybank_id=purchase.piggybank_id)
-        participate_instance.credit = participate_instance.credit + (purchase.unitary_purchase_price * purchase.pieces)
-
-        purchase.delete()
-        related_stock.delete()
-        participate_instance.save()
-        return Response({'message': 'Purchase succesfully deleted.'},
-                        status=HTTP_204_NO_CONTENT)
+                # Commit everything
+                purchase.delete()
+                related_stock.delete()
+                participate_instance.save()
+                return Response({'message': 'Purchase succesfully deleted.'},
+                                status=HTTP_204_NO_CONTENT)
+        except OperationalError as e:
+            return Response(
+                {"error": "Ops, it looks like someone is trying to modify the content of this pb at the "
+                          "same time with you. Retry later."},
+                status=HTTP_409_CONFLICT)
 
 
 @csrf_exempt
 @api_view(["GET"])
 @permission_classes((IsAuthenticated,))
 def get_stock_in_pb(request, piggybank):
-    piggybank_inst = PiggyBank.objects.get(pk=piggybank)
+    request_piggybank = PiggyBank.objects.get(pk=piggybank)
     user_piggybanks = PiggyBank.objects.filter(participate__participant__auth_user=request.user)
-    if piggybank_inst not in user_piggybanks:
+    if request_piggybank not in user_piggybanks:
         return Response({"error": "You don't have the permission to do that."},
                         status=HTTP_403_FORBIDDEN)
     stock = Stock.objects.filter(piggybank_id=piggybank).order_by('product', '-entry_date').distinct('product')
     serialized_list = []
     for st in stock:
         serialized_list.append(StockSerializer(st).data)
+
     return Response(serialized_list,
                     status=HTTP_200_OK)
 
@@ -531,14 +607,14 @@ def get_stock_in_pb(request, piggybank):
 @api_view(["GET"])
 @permission_classes((IsAuthenticated,))
 def get_prod_stock_in_pb(request, piggybank, product):
-    piggybank_inst = PiggyBank.objects.get(pk=piggybank)
-    product_inst = Product.objects.get(pk=product)
+    request_piggybank = PiggyBank.objects.get(pk=piggybank)
+    request_product = Product.objects.get(pk=product)
     user_piggybanks = PiggyBank.objects.filter(participate__participant__auth_user=request.user)
-    if piggybank_inst not in user_piggybanks:
+    if request_piggybank not in user_piggybanks:
         return Response({"error": "You don't have the permission to do that."},
                         status=HTTP_403_FORBIDDEN)
-    stock = Stock.objects.filter(piggybank=piggybank_inst,
-                                 product=product_inst)
+    stock = Stock.objects.filter(piggybank=request_piggybank,
+                                 product=request_product)
     serialized_list = []
     for st in stock:
         serialized_list.append(StockSerializer(st).data)
