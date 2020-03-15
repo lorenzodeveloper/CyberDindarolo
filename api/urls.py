@@ -18,7 +18,6 @@ from rest_framework.routers import DefaultRouter
 
 from api import views
 
-
 router = DefaultRouter()
 router.register(r'piggybanks', views.PiggyBankViewSet, basename='piggybank')
 router.register(r'products', views.ProductViewSet, basename='product')
@@ -40,40 +39,43 @@ urlpatterns = [
     re_path('piggybanks/search/(?P<pattern>[-a-zA-Z0-9_@.]{3,254})', views.get_piggybanks_by_pattern,
             name='search_piggybank'),
 
+    re_path('products/search/(?P<pattern>[-a-zA-Z0-9_@.]{3,254})', views.get_products_by_pattern,
+            name='search_product'),
+
     path('stock/<int:piggybank>/', views.get_stock_in_pb, name='stock_pb'),
     path('stock/<int:piggybank>/<int:product>/', views.get_prod_stock_in_pb, name='prod_stock_pb'),
 
     path('users/inside/<int:piggybank>/', views.get_users_in_pb, name='users_pb'),
 
 
-    # TODO: insert new piggybank                                            -> OK
-    # TODO: insert new product (PRODUCT TABLE)                              -> OK
-    # TODO: insert entry (product in piggybank with price)                  -> OK
-    # TODO: insert purchase                                                 -> OK
+    # insert new piggybank                                            -> OK
+    # insert new product (PRODUCT TABLE)                              -> OK
+    # insert entry (product in piggybank with price)                  -> OK
+    # insert purchase                                                 -> OK
 
     # TODO: invite user to join piggybank
     # TODO: accept or decline invitation
 
-    # TODO: delete piggybank: close piggybank (no one cannot add entry or purchase to that pb) -> OK
+    # delete piggybank: close piggybank (no one cannot add entry or purchase to that pb) -> OK
 
-    # TODO: search piggybank by name -> returns pb_ID                       -> OK
-    # TODO: search product by name -> returns prod_ID
-
-
-    # TODO: get user profile info by id -> returns everything except pwd    -> OK
-    # TODO: get users in piggybank                                          -> OK
-    # TODO: get invitations of user
-    # TODO: get purchases in piggybank                                      -> OK
-    # TODO: get entries in piggybank                                        -> OK
-    # TODO: get stock of piggybank
-
-    # TODO: edit user infos                                                  -> ALMOST OK (change password mechanism)
-    # TODO: edit product                                                     -> OK
-    # TODO: edit piggybank                                                   -> OK
+    # search piggybank by name -> returns pb_ID                       -> OK
+    # search product by name -> returns prod_ID                       -> OK
 
 
-    # TODO: remove entry (only if the entered product wasn't bought by anyone in pb)    -> OK
-    # TODO: remove purchase (only the last one and if the purchased product was not refilled meanwhile) -> OK
+    # get user profile info by id                                     -> OK
+    # get users in piggybank                                          -> OK
+    # get invitations of user
+    # get purchases in piggybank                                      -> OK
+    # get entries in piggybank                                        -> OK
+    # get stock of piggybank                                          -> OK
+
+    # edit user infos                                                  -> ALMOST OK (change password mechanism)
+    # edit product                                                     -> OK
+    # edit piggybank                                                   -> OK
+
+
+    # remove entry (only if the entered product wasn't bought by anyone in pb)    -> OK
+    # remove purchase (only the last one and if the purchased product was not refilled meanwhile) -> OK
     #       In this way we avoid edit entry/purchase
-    # TODO: remove product (only if the entered product wasn't bought by anyone in any pb) -> OK
+    #  remove product (only if the entered product wasn't bought by anyone in any pb) -> OK
 ]

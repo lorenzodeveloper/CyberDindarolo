@@ -146,7 +146,7 @@ def get_users_by_pattern(request, pattern):
         users = UserProfile.objects.filter(auth_user__email=pattern,
                                            auth_user__is_active=True).select_related()
     else:
-        users = UserProfile.objects.filter(auth_user__username__contains=pattern,
+        users = UserProfile.objects.filter(auth_user__username__icontains=pattern,
                                            auth_user__is_active=True).select_related()
 
     users_serialized_list = []
@@ -176,7 +176,7 @@ def get_piggybanks_by_pattern(request, pattern):
         return Response({'error': 'Pattern must be 3 chars long at least'},
                         status=HTTP_400_BAD_REQUEST)
 
-    piggybanks = PiggyBank.objects.filter(pb_name__contains=pattern,
+    piggybanks = PiggyBank.objects.filter(pb_name__icontains=pattern,
                                           participate__participant__auth_user=request.user).select_related()
 
     piggybanks_serialized_list = []
@@ -624,7 +624,7 @@ def get_prod_stock_in_pb(request, piggybank, product):
         return Response({"error": "You don't have the permission to do that."},
                         status=HTTP_403_FORBIDDEN)
     stock = Stock.objects.filter(piggybank=request_piggybank,
-                                 product=request_product)
+                                 product=request_product).order_by('product', '-entry_date').distinct('product')
     serialized_list = []
     for st in stock:
         serialized_list.append(StockSerializer(st).data)
@@ -652,6 +652,24 @@ def get_users_in_pb(request, piggybank):
         data = UserProfileSerializer(u).data
         # Privacy ...
         data.pop("piggybanks")
+        serialized_list.append(data)
+
+    return Response(serialized_list,
+                    status=HTTP_200_OK)
+
+
+@csrf_exempt
+@api_view(["GET"])
+@permission_classes((IsAuthenticated,))
+def get_products_by_pattern(request, pattern):
+    """
+       An APIview for searching Product instances by name.
+    """
+    products = Product.objects.filter(name__icontains=pattern)
+
+    serialized_list = []
+    for p in products:
+        data = ProductSerializer(p).data
         serialized_list.append(data)
 
     return Response(serialized_list,

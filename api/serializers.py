@@ -1,9 +1,8 @@
+from django.contrib.auth.models import User as AuthUser
 from rest_framework import serializers
 
-from django.contrib.auth.models import User as AuthUser
-
-from api.my_helpers import is_string_valid, is_string_valid_un  # , is_string_valid_email
 from api.models import UserProfile, PiggyBank, Product, Entry, Purchase, Stock
+from api.my_helpers import is_string_valid, is_string_valid_un
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -59,7 +58,7 @@ class ProductSerializer(serializers.ModelSerializer):
 class EntrySerializer(serializers.ModelSerializer):
     def validate(self, data):
         """
-        Check that pieces >= 1.
+        Check that set_quantity >= 1 and entry_price is a non-negative number.
         """
         if data.get('set_quantity') is not None and data.get('set_quantity') < 1 \
                 or data.get('entry_price') is not None and data.get('entry_price') < 0:
@@ -74,7 +73,7 @@ class EntrySerializer(serializers.ModelSerializer):
 class PurchaseSerializer(serializers.ModelSerializer):
     def validate(self, data):
         """
-        Check that pieces >= 1.
+        Check that pieces >= 1 and unitary_purchase_price is a non-negative number.
         """
         if data.get('pieces') is not None and data.get('pieces') < 1 \
                 or data.get('unitary_purchase_price') is not None and data.get('unitary_purchase_price') < 0:
@@ -87,7 +86,12 @@ class PurchaseSerializer(serializers.ModelSerializer):
 
 
 class StockSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source='product.name')
+    product_description = serializers.CharField(source='product.description')
+    # product_pieces_per_set = serializers.IntegerField(source='product.pieces')
+    entered_by_username = serializers.CharField(source='entered_by.auth_user.username')
 
     class Meta:
         model = Stock
-        fields = ['product', 'piggybank', 'entry_date', 'entered_by', 'unitary_price', 'pieces']
+        fields = ['product', 'product_name', 'product_description', 'piggybank', 'entry_date',
+                  'entered_by', 'entered_by_username', 'unitary_price', 'pieces']
