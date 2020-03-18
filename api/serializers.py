@@ -1,7 +1,7 @@
 from django.contrib.auth.models import User as AuthUser
 from rest_framework import serializers
 
-from api.models import UserProfile, PiggyBank, Product, Entry, Purchase, Stock
+from api.models import UserProfile, PiggyBank, Product, Entry, Purchase, Stock, Invitation
 from api.my_helpers import is_string_valid, is_string_valid_un
 
 
@@ -86,12 +86,22 @@ class PurchaseSerializer(serializers.ModelSerializer):
 
 
 class StockSerializer(serializers.ModelSerializer):
-    product_name = serializers.CharField(source='product.name')
-    product_description = serializers.CharField(source='product.description')
-    # product_pieces_per_set = serializers.IntegerField(source='product.pieces')
-    entered_by_username = serializers.CharField(source='entered_by.auth_user.username')
+    product_name = serializers.CharField(source='product.name', read_only=True)
+    product_description = serializers.CharField(source='product.description', read_only=True)
+    entered_by_username = serializers.CharField(source='entered_by.auth_user.username', read_only=True)
 
     class Meta:
         model = Stock
         fields = ['product', 'product_name', 'product_description', 'piggybank', 'entry_date',
                   'entered_by', 'entered_by_username', 'unitary_price', 'pieces']
+
+
+class InvitationSerializer(serializers.ModelSerializer):
+    invited_username = serializers.CharField(source='invited.auth_user.username', read_only=True)
+    inviter_username = serializers.CharField(source='inviter.auth_user.username', read_only=True)
+    piggybank_name = serializers.CharField(source='piggybank.pb_name', read_only=True)
+
+    class Meta:
+        model = Invitation
+        fields = ['id', 'inviter', 'inviter_username', 'invited', 'invited_username', 'invitation_date',
+                  'piggybank', 'piggybank_name']

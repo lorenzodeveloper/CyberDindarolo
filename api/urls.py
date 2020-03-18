@@ -24,7 +24,7 @@ router.register(r'products', views.ProductViewSet, basename='product')
 router.register(r'users', views.UserProfileViewSet, basename='user')
 router.register(r'entries', views.EntryViewSet, basename='entry')
 router.register(r'purchases', views.PurchaseViewSet, basename='purchase')
-
+router.register(r'invitations', views.InvitationViewSet, basename='invitation')
 
 urlpatterns = [
 
@@ -34,12 +34,12 @@ urlpatterns = [
 
     path('', include(router.urls)),
 
-    re_path('users/search/(?P<pattern>[-a-zA-Z0-9_@.]{3,254})', views.get_users_by_pattern,
+    re_path('^users/search/(?P<pattern>[-a-zA-Z0-9_@.]{3,254})/$', views.get_users_by_pattern,
             name='search_user'),
-    re_path('piggybanks/search/(?P<pattern>[-a-zA-Z0-9_@.]{3,254})', views.get_piggybanks_by_pattern,
+    re_path('^piggybanks/search/(?P<pattern>[-a-zA-Z0-9_@.]{3,254})/$', views.get_piggybanks_by_pattern,
             name='search_piggybank'),
 
-    re_path('products/search/(?P<pattern>[-a-zA-Z0-9_@.]{3,254})', views.get_products_by_pattern,
+    re_path('^products/search/(?P<pattern>[-a-zA-Z0-9_@.]{3,254})/$', views.get_products_by_pattern,
             name='search_product'),
 
     path('stock/<int:piggybank>/', views.get_stock_in_pb, name='stock_pb'),
@@ -47,20 +47,23 @@ urlpatterns = [
 
     path('users/inside/<int:piggybank>/', views.get_users_in_pb, name='users_pb'),
 
+    path('invitations/manage/<int:invitation>/', views.manage_invitation, name='manage_invitation'),
+
+    re_path(r'^verify_account/(?P<uidb64>[0-9A-Za-z_\-]+)/(?P<token>[0-9A-Za-z]{1,13}-[0-9A-Za-z]{1,20})/$',
+            views.confirm_email, name='verify_account'),
 
     # insert new piggybank                                            -> OK
     # insert new product (PRODUCT TABLE)                              -> OK
     # insert entry (product in piggybank with price)                  -> OK
     # insert purchase                                                 -> OK
 
-    # TODO: invite user to join piggybank
-    # TODO: accept or decline invitation
+    # invite user to join                                             -> OK
+    # accept or decline invitation                                    -> OK
 
     # delete piggybank: close piggybank (no one cannot add entry or purchase to that pb) -> OK
 
     # search piggybank by name -> returns pb_ID                       -> OK
     # search product by name -> returns prod_ID                       -> OK
-
 
     # get user profile info by id                                     -> OK
     # get users in piggybank                                          -> OK
@@ -72,7 +75,6 @@ urlpatterns = [
     # edit user infos                                                  -> ALMOST OK (change password mechanism)
     # edit product                                                     -> OK
     # edit piggybank                                                   -> OK
-
 
     # remove entry (only if the entered product wasn't bought by anyone in pb)    -> OK
     # remove purchase (only the last one and if the purchased product was not refilled meanwhile) -> OK

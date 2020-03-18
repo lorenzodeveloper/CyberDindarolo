@@ -3,9 +3,13 @@ import datetime
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User as AuthUser
 from django.core.exceptions import ObjectDoesNotExist
-from django.db import IntegrityError, models, transaction, OperationalError
+from django.core.mail import send_mail
+from django.db import models, transaction, OperationalError
 from django.db.models import ExpressionWrapper, DecimalField, BigIntegerField
+from django.urls import reverse
 from django.utils import timezone
+from django.utils.encoding import force_bytes, force_str
+from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import viewsets
 from rest_framework.authtoken.models import Token
@@ -16,12 +20,15 @@ from rest_framework.status import (
     HTTP_400_BAD_REQUEST,
     HTTP_404_NOT_FOUND,
     HTTP_200_OK,
-    HTTP_201_CREATED, HTTP_403_FORBIDDEN, HTTP_202_ACCEPTED, HTTP_204_NO_CONTENT, HTTP_409_CONFLICT)
+    HTTP_201_CREATED, HTTP_403_FORBIDDEN, HTTP_202_ACCEPTED, HTTP_204_NO_CONTENT, HTTP_409_CONFLICT,
+    HTTP_500_INTERNAL_SERVER_ERROR)
 
-from api.models import UserProfile, PiggyBank, Product, Purchase, Entry, Stock, Participate
+from CyberDindarolo.settings import EMAIL_HOST_USER
+from api.authentication import account_activation_token
+from api.models import UserProfile, PiggyBank, Product, Purchase, Entry, Stock, Participate, Invitation
 from api.my_helpers import is_blank, is_string_valid_email
 from api.serializers import UserProfileSerializer, PiggyBankSerializer, ProductSerializer, UserSerializer, \
-    EntrySerializer, PurchaseSerializer, StockSerializer
+    EntrySerializer, PurchaseSerializer, StockSerializer, InvitationSerializer
 
 
 @csrf_exempt
@@ -102,31 +109,46 @@ def register(request):
     res, ex = is_string_valid_email(email)
 
     if not res:
-        return Response({'error': ex},
+        return Response({'error': 'Email is not valid.'},
                         status=HTTP_400_BAD_REQUEST)
 
+    users = AuthUser.objects.filter(models.Q(username=username) | models.Q(email=email))
+    if len(users) != 0:
+        return Response({'error': 'There is already a user with that username/email.'},
+                        status=HTTP_400_BAD_REQUEST)
     try:
-        user = AuthUser.objects.create_user(username=username, email=email, password=passwordA,
-                                            first_name=first_name, last_name=last_name)
-        user.save()
-    except IntegrityError:
-        return Response({'error': 'User already exists'},
-                        status=HTTP_400_BAD_REQUEST)
+        with transaction.atomic():
+            user = AuthUser.objects.create_user(username=username, email=email, password=passwordA,
+                                                first_name=first_name, last_name=last_name)
+            user.is_active = False
+            user.save()
+
+            # TODO: Use UserSerializer to handle user creation
+
+            act_token = account_activation_token.make_token(user)
+            html_message = 'Welcome {},<br>Please click on the link to activate your account.<br><br>Link:<br>' \
+                           '<a href=\'{}\'>Verify</a>'
+            html_message = html_message.format(user.first_name,
+                                               request.build_absolute_uri(reverse('verify_account',
+                                                                                  kwargs={
+                                                                                      'uidb64': urlsafe_base64_encode(
+                                                                                          force_bytes(
+                                                                                              user.pk)),
+                                                                                      'token': str(
+                                                                                          act_token)})))
+            message = html_message.replace("<br>", "\n").\
+                replace("<a href=\'", "").\
+                replace("\'>", "").\
+                replace("</a>", "")
+
+            send_mail(subject='CyberDindarolo email verification', message=message, html_message=html_message,
+                      from_email=EMAIL_HOST_USER, recipient_list=[user.email], fail_silently=False)
+
+            return Response({'message': 'User created, please activate your account by verifying your email.'},
+                            status=HTTP_201_CREATED)
     except Exception as e:
-        return Response({'error': e},
-                        status=HTTP_400_BAD_REQUEST)
-
-    # TODO: Send confirmation email to validate user registration
-    # TODO: Use UserSerializer to handle user creation
-
-    token, created = Token.objects.get_or_create(user=user)
-
-    user.last_login = timezone.now()
-    user.save(update_fields=['last_login'])
-
-    return Response({'user_data': UserProfileSerializer(UserProfile.objects.get(auth_user=user)).data,
-                     'token': token.key},
-                    status=HTTP_201_CREATED)
+        return Response({'error': 'Ops, there was an unexpected error: {}'.format(e.__str__())},
+                        status=HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @csrf_exempt
@@ -223,7 +245,7 @@ class PiggyBankViewSet(viewsets.ModelViewSet):
                             status=HTTP_403_FORBIDDEN)
         piggybank.closed = True
         piggybank.save()
-        return Response({'message': 'Piggybank succesfully deleted'},
+        return Response({'message': 'Piggybank successfully deleted'},
                         status=HTTP_204_NO_CONTENT)
 
 
@@ -245,7 +267,7 @@ class ProductViewSet(viewsets.ModelViewSet):
                                       " The product was entered or bought by someone else"},
                             status=HTTP_403_FORBIDDEN)
         product.delete()
-        return Response({'message': 'Product succesfully deleted'},
+        return Response({'message': 'Product successfully deleted'},
                         status=HTTP_204_NO_CONTENT)
 
 
@@ -301,7 +323,7 @@ class UserProfileViewSet(viewsets.ModelViewSet):
         request.user.save()
         token = Token.objects.get(user_id=userprofile.auth_user_id)
         token.delete()
-        return Response({'message': 'User succesfully deleted. You\'ll be logged out.'},
+        return Response({'message': 'User successfully deleted. You\'ll be logged out.'},
                         status=HTTP_204_NO_CONTENT)
 
 
@@ -404,6 +426,11 @@ class EntryViewSet(viewsets.ModelViewSet):
                 headers = self.get_success_headers(serializer.data)
                 return Response(serializer.data,
                                 status=HTTP_201_CREATED, headers=headers)
+        except ObjectDoesNotExist as oe:
+            return Response(
+                {"error": "Check your input."},
+                status=HTTP_400_BAD_REQUEST)
+
         except OperationalError as e:
             return Response(
                 {"error": "Ops, it looks like someone is trying to modify the content of this pb at the "
@@ -445,7 +472,7 @@ class EntryViewSet(viewsets.ModelViewSet):
                 related_stock.delete()
                 participate_instance.save()
 
-                return Response({'message': 'Entry succesfully deleted.'},
+                return Response({'message': 'Entry successfully deleted.'},
                                 status=HTTP_204_NO_CONTENT)
         except OperationalError as e:
             return Response(
@@ -541,6 +568,12 @@ class PurchaseViewSet(viewsets.ModelViewSet):
                 headers = self.get_success_headers(serializer.data)
                 return Response(serializer.data,
                                 status=HTTP_201_CREATED, headers=headers)
+
+        except ObjectDoesNotExist as oe:
+            return Response(
+                {"error": "Check your input"},
+                status=HTTP_400_BAD_REQUEST)
+
         except OperationalError as e:
             return Response({"error": "Ops, it looks like someone is trying to modify the content of this pb at the "
                                       "same time with you. Retry later."},
@@ -580,7 +613,7 @@ class PurchaseViewSet(viewsets.ModelViewSet):
                 purchase.delete()
                 related_stock.delete()
                 participate_instance.save()
-                return Response({'message': 'Purchase succesfully deleted.'},
+                return Response({'message': 'Purchase successfully deleted.'},
                                 status=HTTP_204_NO_CONTENT)
         except OperationalError as e:
             return Response(
@@ -596,18 +629,23 @@ def get_stock_in_pb(request, piggybank):
     """
        An APIView for viewing the stock of a pb instance.
     """
-    request_piggybank = PiggyBank.objects.get(pk=piggybank)
-    user_piggybanks = PiggyBank.objects.filter(participate__participant__auth_user=request.user)
-    if request_piggybank not in user_piggybanks:
-        return Response({"error": "You don't have the permission to do that."},
-                        status=HTTP_403_FORBIDDEN)
-    stock = Stock.objects.filter(piggybank_id=piggybank).order_by('product', '-entry_date').distinct('product')
-    serialized_list = []
-    for st in stock:
-        serialized_list.append(StockSerializer(st).data)
+    try:
+        request_piggybank = PiggyBank.objects.get(pk=piggybank)
+        user_piggybanks = PiggyBank.objects.filter(participate__participant__auth_user=request.user)
+        if request_piggybank not in user_piggybanks:
+            return Response({"error": "You don't have the permission to do that."},
+                            status=HTTP_403_FORBIDDEN)
+        stock = Stock.objects.filter(piggybank_id=piggybank).order_by('product', '-entry_date').distinct('product')
+        serialized_list = []
+        for st in stock:
+            serialized_list.append(StockSerializer(st).data)
 
-    return Response(serialized_list,
-                    status=HTTP_200_OK)
+        return Response(serialized_list,
+                        status=HTTP_200_OK)
+    except ObjectDoesNotExist as oe:
+        return Response(
+            {"error": "Check your input, piggybank doesn't exist."},
+            status=HTTP_400_BAD_REQUEST)
 
 
 @csrf_exempt
@@ -617,19 +655,24 @@ def get_prod_stock_in_pb(request, piggybank, product):
     """
        An APIView for viewing the stock of a product in pb instance.
     """
-    request_piggybank = PiggyBank.objects.get(pk=piggybank)
-    request_product = Product.objects.get(pk=product)
-    user_piggybanks = PiggyBank.objects.filter(participate__participant__auth_user=request.user)
-    if request_piggybank not in user_piggybanks:
-        return Response({"error": "You don't have the permission to do that."},
-                        status=HTTP_403_FORBIDDEN)
-    stock = Stock.objects.filter(piggybank=request_piggybank,
-                                 product=request_product).order_by('product', '-entry_date').distinct('product')
-    serialized_list = []
-    for st in stock:
-        serialized_list.append(StockSerializer(st).data)
-    return Response(serialized_list,
-                    status=HTTP_200_OK)
+    try:
+        request_piggybank = PiggyBank.objects.get(pk=piggybank)
+        request_product = Product.objects.get(pk=product)
+        user_piggybanks = PiggyBank.objects.filter(participate__participant__auth_user=request.user)
+        if request_piggybank not in user_piggybanks:
+            return Response({"error": "You don't have the permission to do that."},
+                            status=HTTP_403_FORBIDDEN)
+        stock = Stock.objects.filter(piggybank=request_piggybank,
+                                     product=request_product).order_by('product', '-entry_date').distinct('product')
+        serialized_list = []
+        for st in stock:
+            serialized_list.append(StockSerializer(st).data)
+        return Response(serialized_list,
+                        status=HTTP_200_OK)
+    except ObjectDoesNotExist as oe:
+        return Response(
+            {"error": "Check your input, piggybank and/or product don't/doesn't exist."},
+            status=HTTP_400_BAD_REQUEST)
 
 
 @csrf_exempt
@@ -639,23 +682,28 @@ def get_users_in_pb(request, piggybank):
     """
        An APIView for viewing users inside pb..
     """
-    request_piggybank = PiggyBank.objects.get(pk=piggybank)
-    user_piggybanks = PiggyBank.objects.filter(participate__participant__auth_user=request.user)
-    if request_piggybank not in user_piggybanks:
-        return Response({"error": "You don't have the permission to do that."},
-                        status=HTTP_403_FORBIDDEN)
+    try:
+        request_piggybank = PiggyBank.objects.get(pk=piggybank)
+        user_piggybanks = PiggyBank.objects.filter(participate__participant__auth_user=request.user)
+        if request_piggybank not in user_piggybanks:
+            return Response({"error": "You don't have the permission to do that."},
+                            status=HTTP_403_FORBIDDEN)
 
-    user_inside_pb = UserProfile.objects.filter(participate__piggybank=piggybank)
+        user_inside_pb = UserProfile.objects.filter(participate__piggybank=piggybank)
 
-    serialized_list = []
-    for u in user_inside_pb:
-        data = UserProfileSerializer(u).data
-        # Privacy ...
-        data.pop("piggybanks")
-        serialized_list.append(data)
+        serialized_list = []
+        for u in user_inside_pb:
+            data = UserProfileSerializer(u).data
+            # Privacy ...
+            data.pop("piggybanks")
+            serialized_list.append(data)
 
-    return Response(serialized_list,
-                    status=HTTP_200_OK)
+        return Response(serialized_list,
+                        status=HTTP_200_OK)
+    except ObjectDoesNotExist as oe:
+        return Response(
+            {"error": "Check your input, piggybank doesn't exist."},
+            status=HTTP_400_BAD_REQUEST)
 
 
 @csrf_exempt
@@ -674,3 +722,144 @@ def get_products_by_pattern(request, pattern):
 
     return Response(serialized_list,
                     status=HTTP_200_OK)
+
+
+@permission_classes((IsAuthenticated,))
+class InvitationViewSet(viewsets.ModelViewSet):
+    """
+      A viewset for viewing and deleting Invitation instances.
+    """
+    serializer_class = InvitationSerializer
+    queryset = Invitation.objects.all()
+
+    http_method_names = ['get', 'post', 'delete']
+
+    def get_queryset(self):
+        # Invitations filtered per user
+        queryset = self.queryset
+        query_set = queryset.filter(models.Q(inviter_id=self.request.user.id) |
+                                    models.Q(invited_id=self.request.user.id)).order_by('-invitation_date')
+        return query_set
+
+    def create(self, request, *args, **kwargs):
+        # Get request data copy in order to be able to modify it
+        data = request.data.copy()
+        try:
+            request_piggybank = PiggyBank.objects.get(pk=data['piggybank'])
+            request_invited = UserProfile.objects.get(pk=data.get('invited'))
+        except ObjectDoesNotExist as oe:
+            return Response({"error": "Check yur input, user / piggybank not found."},
+                            status=HTTP_400_BAD_REQUEST)
+
+        if request.user == request_invited:
+            return Response({"error": "Why are you trying to invite yourself to join your pb?"},
+                            status=HTTP_403_FORBIDDEN)
+
+        user_piggybanks = PiggyBank.objects.filter(participate__participant__auth_user=request.user)
+        if request_piggybank not in user_piggybanks:
+            return Response({"error": "You don't have the permission to do that."},
+                            status=HTTP_403_FORBIDDEN)
+        if request_piggybank.closed:
+            return Response({"error": "You don't have the permission to do that. Piggybank is closed"},
+                            status=HTTP_403_FORBIDDEN)
+
+        invited_piggybanks = PiggyBank.objects.filter(participate__participant__auth_user=request_invited)
+        if request_piggybank in invited_piggybanks:
+            return Response({"error": "User has already joined the pb."},
+                            status=HTTP_400_BAD_REQUEST)
+
+        invited_invitations = Invitation.objects.filter(invited=request_invited, piggybank=request_piggybank)
+        if len(invited_invitations) != 0:
+            return Response({"error": "User was already invited to join the pb."},
+                            status=HTTP_400_BAD_REQUEST)
+
+        data['inviter'] = str(request.user.id)
+        utc_now = str(timezone.now())
+        data['invitation_date'] = utc_now
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data,
+                        status=HTTP_201_CREATED, headers=headers)
+
+    # TODO: Check if this method is necessary or not
+    def destroy(self, request, *args, **kwargs):
+        try:
+            with transaction.atomic():
+                invitation = self.get_object()
+                if invitation.inviter_id != request.user.id:
+                    return Response({"error": "You don't have the permission to do that."},
+                                    status=HTTP_403_FORBIDDEN)
+                invitation.delete()
+                return Response({'message': 'Invitation successfully deleted.'},
+                                status=HTTP_204_NO_CONTENT)
+
+        except OperationalError as e:
+            return Response(
+                {"error": "Ops, it looks like someone is trying to modify the invitation at the "
+                          "same time with you. Retry later."},
+                status=HTTP_409_CONFLICT)
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes((IsAuthenticated,))
+def manage_invitation(request, invitation):
+    """
+       An APIview for managing invitation (accept or decline).
+    """
+    try:
+        with transaction.atomic():
+            invitation = Invitation.objects.select_for_update().get(pk=invitation)
+            accept = request.data.get('accept', 0)  # Default is 0 = Decline
+
+            if invitation.invited_id != request.user.id:
+                return Response({"error": "You don't have the permission to do that."},
+                                status=HTTP_403_FORBIDDEN)
+
+            if accept != 0:
+                # Accept invitation
+                participate = Participate(participant_id=request.user.id,
+                                          piggybank_id=invitation.piggybank.id)
+                participate.save()
+
+            invitation.delete()
+
+            return Response({'message': 'Invitation successfully accepted/declined.'},
+                            status=HTTP_202_ACCEPTED)
+
+    except ObjectDoesNotExist as oe:
+        return Response(
+            {"error": "Check your input, invitation doesn't exist."},
+            status=HTTP_400_BAD_REQUEST)
+
+    except OperationalError as e:
+        return Response(
+            {"error": "Ops, it looks like someone is trying to modify the invitation at the "
+                      "same time with you. Retry later."},
+            status=HTTP_409_CONFLICT)
+
+
+@csrf_exempt
+@api_view(["GET"])
+@permission_classes((AllowAny,))
+def confirm_email(request, uidb64, token):
+    try:
+        uid = force_str(urlsafe_base64_decode(uidb64))
+        user = AuthUser.objects.get(pk=uid)
+    except (TypeError, ValueError, OverflowError, ObjectDoesNotExist):
+        user = None
+
+    if user is not None and account_activation_token.check_token(user, token):
+        user.is_active = True
+        user.save()
+        user.userprofile.email_confirmed = True
+        user.userprofile.save()
+        return Response({'message': 'Account successfully verified.'},
+                        status=HTTP_202_ACCEPTED)
+    else:
+        # invalid link
+        return Response({'error': 'Invalid link'},
+                        status=HTTP_400_BAD_REQUEST)

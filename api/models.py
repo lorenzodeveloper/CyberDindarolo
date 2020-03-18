@@ -117,7 +117,7 @@ class Invitation(models.Model):
     invitation_date = models.DateTimeField()
 
     class Meta:
-        unique_together = (('inviter', 'invited', 'piggybank'),)
+        unique_together = (('invited', 'piggybank'),)
 
 
 # ----------------- SIGNALS ---------------
