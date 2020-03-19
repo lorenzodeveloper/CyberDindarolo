@@ -2,7 +2,7 @@ import datetime
 
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User as AuthUser
-from django.core.exceptions import ObjectDoesNotExist
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.core.mail import send_mail
 from django.db import models, transaction, OperationalError
 from django.db.models import ExpressionWrapper, DecimalField, BigIntegerField
@@ -27,6 +27,7 @@ from CyberDindarolo.settings import EMAIL_HOST_USER
 from api.authentication import account_activation_token
 from api.models import UserProfile, PiggyBank, Product, Purchase, Entry, Stock, Participate, Invitation
 from api.my_helpers import is_blank, is_string_valid_email
+from api.permissions import IsAuthenticatedAndEmailConfirmed
 from api.serializers import UserProfileSerializer, PiggyBankSerializer, ProductSerializer, UserSerializer, \
     EntrySerializer, PurchaseSerializer, StockSerializer, InvitationSerializer
 
@@ -47,6 +48,10 @@ def login(request):
     if not user:
         return Response({'error': 'Invalid Credentials'},
                         status=HTTP_404_NOT_FOUND)
+
+    if not user.userprofile.email_confirmed:
+        return Response({'error': 'Must confirm email before login.'},
+                        status=HTTP_403_FORBIDDEN)
 
     token, created = Token.objects.get_or_create(user=user)
 
@@ -120,29 +125,12 @@ def register(request):
         with transaction.atomic():
             user = AuthUser.objects.create_user(username=username, email=email, password=passwordA,
                                                 first_name=first_name, last_name=last_name)
-            user.is_active = False
-            user.save()
+            # user.is_active = False
+            # user.save()
 
             # TODO: Use UserSerializer to handle user creation
 
-            act_token = account_activation_token.make_token(user)
-            html_message = 'Welcome {},<br>Please click on the link to activate your account.<br><br>Link:<br>' \
-                           '<a href=\'{}\'>Verify</a>'
-            html_message = html_message.format(user.first_name,
-                                               request.build_absolute_uri(reverse('verify_account',
-                                                                                  kwargs={
-                                                                                      'uidb64': urlsafe_base64_encode(
-                                                                                          force_bytes(
-                                                                                              user.pk)),
-                                                                                      'token': str(
-                                                                                          act_token)})))
-            message = html_message.replace("<br>", "\n").\
-                replace("<a href=\'", "").\
-                replace("\'>", "").\
-                replace("</a>", "")
-
-            send_mail(subject='CyberDindarolo email verification', message=message, html_message=html_message,
-                      from_email=EMAIL_HOST_USER, recipient_list=[user.email], fail_silently=False)
+            send_confirmation_mail(request, user)
 
             return Response({'message': 'User created, please activate your account by verifying your email.'},
                             status=HTTP_201_CREATED)
@@ -151,9 +139,29 @@ def register(request):
                         status=HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+def send_confirmation_mail(request, user):
+    act_token = account_activation_token.make_token(user)
+    html_message = 'Welcome {},<br>Please click on the link to activate your account.<br><br>Link:<br>' \
+                   '<a href=\'{}\'>Verify</a>'
+    html_message = html_message.format(user.first_name,
+                                       request.build_absolute_uri(reverse('verify_account',
+                                                                          kwargs={
+                                                                              'uidb64': urlsafe_base64_encode(
+                                                                                  force_bytes(
+                                                                                      user.pk)),
+                                                                              'token': str(
+                                                                                  act_token)})))
+    message = html_message.replace("<br>", "\n"). \
+        replace("<a href=\'", ""). \
+        replace("\'>", ""). \
+        replace("</a>", "")
+    send_mail(subject='CyberDindarolo email verification', message=message, html_message=html_message,
+              from_email=EMAIL_HOST_USER, recipient_list=[user.email], fail_silently=False)
+
+
 @csrf_exempt
 @api_view(["GET"])
-@permission_classes((IsAuthenticated,))
+@permission_classes((IsAuthenticatedAndEmailConfirmed,))
 def get_users_by_pattern(request, pattern):
     """
     An APIview for searching User instances by username or email.
@@ -188,7 +196,7 @@ def get_users_by_pattern(request, pattern):
 
 @csrf_exempt
 @api_view(["GET"])
-@permission_classes((IsAuthenticated,))
+@permission_classes((IsAuthenticatedAndEmailConfirmed,))
 def get_piggybanks_by_pattern(request, pattern):
     """
     An APIview for searching PiggyBank instances by name.
@@ -213,7 +221,7 @@ def get_piggybanks_by_pattern(request, pattern):
                     status=HTTP_200_OK)
 
 
-@permission_classes((IsAuthenticated,))
+@permission_classes((IsAuthenticatedAndEmailConfirmed,))
 class PiggyBankViewSet(viewsets.ModelViewSet):
     """
     A viewset for viewing and editing PiggyBank instances.
@@ -249,7 +257,7 @@ class PiggyBankViewSet(viewsets.ModelViewSet):
                         status=HTTP_204_NO_CONTENT)
 
 
-@permission_classes((IsAuthenticated,))
+@permission_classes((IsAuthenticatedAndEmailConfirmed,))
 class ProductViewSet(viewsets.ModelViewSet):
     """
     A viewset for viewing and editing Product instances.
@@ -271,7 +279,7 @@ class ProductViewSet(viewsets.ModelViewSet):
                         status=HTTP_204_NO_CONTENT)
 
 
-@permission_classes((IsAuthenticated,))
+@permission_classes((IsAuthenticatedAndEmailConfirmed,))
 class UserProfileViewSet(viewsets.ModelViewSet):
     """
     A viewset for viewing and editing User instances.
@@ -304,15 +312,38 @@ class UserProfileViewSet(viewsets.ModelViewSet):
             return Response({"error": "You don't have the permission to do that. "
                                       "Please use specific api request for piggybanks."},
                             status=HTTP_403_FORBIDDEN)
+        # TODO: GENERATE ONE TIME LINK AND SEND IT TO USER
+        if request.data.get("password", None) is not None:
+            return Response({"error": "You don't have the permission to do that. "
+                                      "Please use specific api request for password change."},
+                            status=HTTP_403_FORBIDDEN)
 
-        serializer = UserSerializer(u_instance, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
+        try:
+            with transaction.atomic():
+                old_email = u_instance.email
+                serializer = UserSerializer(u_instance, data=request.data, partial=True)
+                serializer.is_valid(raise_exception=True)
+                serializer.save()
 
-        resp_data = UserProfileSerializer(UserProfile.objects.get(pk=kwargs.get('pk')))
+                new_email = request.data.get("email", None)
+                if new_email is not None and len(AuthUser.objects.filter(email=new_email)) == 1 \
+                        and new_email != old_email:
+                    up_instance.email_confirmed = False
+                    up_instance.save()
+                    send_confirmation_mail(request, u_instance)
+                else:
+                    raise ValidationError("This email is used by another account / your new_email = your old_email")
 
-        return Response(resp_data.data,
-                        status=HTTP_202_ACCEPTED)
+                resp_data = UserProfileSerializer(up_instance)
+
+                return Response(resp_data.data,
+                                status=HTTP_202_ACCEPTED)
+        except ValidationError as ve:
+            return Response({"error": str(ve)},
+                            status=HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({"error": "Something bad happened, " + str(e)},
+                            status=HTTP_500_INTERNAL_SERVER_ERROR)
 
     def destroy(self, request, *args, **kwargs):
         userprofile = self.get_object()
@@ -327,7 +358,7 @@ class UserProfileViewSet(viewsets.ModelViewSet):
                         status=HTTP_204_NO_CONTENT)
 
 
-@permission_classes((IsAuthenticated,))
+@permission_classes((IsAuthenticatedAndEmailConfirmed,))
 class EntryViewSet(viewsets.ModelViewSet):
     """
        A viewset for viewing and editing Entry instances.
@@ -481,7 +512,7 @@ class EntryViewSet(viewsets.ModelViewSet):
                 status=HTTP_409_CONFLICT)
 
 
-@permission_classes((IsAuthenticated,))
+@permission_classes((IsAuthenticatedAndEmailConfirmed,))
 class PurchaseViewSet(viewsets.ModelViewSet):
     """
        A viewset for viewing and editing Purchase instances.
@@ -624,7 +655,7 @@ class PurchaseViewSet(viewsets.ModelViewSet):
 
 @csrf_exempt
 @api_view(["GET"])
-@permission_classes((IsAuthenticated,))
+@permission_classes((IsAuthenticatedAndEmailConfirmed,))
 def get_stock_in_pb(request, piggybank):
     """
        An APIView for viewing the stock of a pb instance.
@@ -650,7 +681,7 @@ def get_stock_in_pb(request, piggybank):
 
 @csrf_exempt
 @api_view(["GET"])
-@permission_classes((IsAuthenticated,))
+@permission_classes((IsAuthenticatedAndEmailConfirmed,))
 def get_prod_stock_in_pb(request, piggybank, product):
     """
        An APIView for viewing the stock of a product in pb instance.
@@ -677,7 +708,7 @@ def get_prod_stock_in_pb(request, piggybank, product):
 
 @csrf_exempt
 @api_view(["GET"])
-@permission_classes((IsAuthenticated,))
+@permission_classes((IsAuthenticatedAndEmailConfirmed,))
 def get_users_in_pb(request, piggybank):
     """
        An APIView for viewing users inside pb..
@@ -708,7 +739,7 @@ def get_users_in_pb(request, piggybank):
 
 @csrf_exempt
 @api_view(["GET"])
-@permission_classes((IsAuthenticated,))
+@permission_classes((IsAuthenticatedAndEmailConfirmed,))
 def get_products_by_pattern(request, pattern):
     """
        An APIview for searching Product instances by name.
@@ -724,7 +755,7 @@ def get_products_by_pattern(request, pattern):
                     status=HTTP_200_OK)
 
 
-@permission_classes((IsAuthenticated,))
+@permission_classes((IsAuthenticatedAndEmailConfirmed,))
 class InvitationViewSet(viewsets.ModelViewSet):
     """
       A viewset for viewing and deleting Invitation instances.
@@ -805,7 +836,7 @@ class InvitationViewSet(viewsets.ModelViewSet):
 
 @csrf_exempt
 @api_view(["POST"])
-@permission_classes((IsAuthenticated,))
+@permission_classes((IsAuthenticatedAndEmailConfirmed,))
 def manage_invitation(request, invitation):
     """
        An APIview for managing invitation (accept or decline).
@@ -853,8 +884,8 @@ def confirm_email(request, uidb64, token):
         user = None
 
     if user is not None and account_activation_token.check_token(user, token):
-        user.is_active = True
-        user.save()
+        # user.is_active = True
+        # user.save()
         user.userprofile.email_confirmed = True
         user.userprofile.save()
         return Response({'message': 'Account successfully verified.'},
