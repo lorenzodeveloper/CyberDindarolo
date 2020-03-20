@@ -86,8 +86,8 @@ DATABASES = {
         'HOST': 'localhost',
         'PORT': '',  # 5432
         'OPTIONS': {
-                    'isolation_level': psycopg2.extensions.ISOLATION_LEVEL_REPEATABLE_READ,
-                },
+            'isolation_level': psycopg2.extensions.ISOLATION_LEVEL_REPEATABLE_READ,
+        },
     }
 }
 
@@ -116,6 +116,7 @@ EMAIL_PORT = 587
 EMAIL_HOST_USER = 'Your Host'
 EMAIL_HOST_PASSWORD = 'Your Password'
 
+PASSWORD_RESET_TIMEOUT_DAYS = 1
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
@@ -123,7 +124,7 @@ REST_FRAMEWORK = {
         'api.authentication.ExpiringTokenAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
-            'rest_framework.permissions.IsAuthenticated', ],
+        'rest_framework.permissions.IsAuthenticated', ],
 }
 
 # Internationalization

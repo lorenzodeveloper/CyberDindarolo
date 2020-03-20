@@ -52,6 +52,10 @@ urlpatterns = [
     re_path(r'^verify_account/(?P<uidb64>[0-9A-Za-z_\-]+)/(?P<token>[0-9A-Za-z]{1,13}-[0-9A-Za-z]{1,20})/$',
             views.confirm_email, name='verify_account'),
 
+    path('forgot_password/', views.forgot_password, name='forgot_password'),
+    re_path(r'^reset_password/(?P<uidb64>[0-9A-Za-z_\-]+)/(?P<token>[0-9A-Za-z]{1,13}-[0-9A-Za-z]{1,20})/$',
+            views.reset_password, name='reset_password'),
+
     # insert new piggybank                                            -> OK
     # insert new product (PRODUCT TABLE)                              -> OK
     # insert entry (product in piggybank with price)                  -> OK
@@ -72,7 +76,7 @@ urlpatterns = [
     # get entries in piggybank                                        -> OK
     # get stock of piggybank                                          -> OK
 
-    # edit user infos                                                  -> ALMOST OK (change password mechanism)
+    # edit user infos                                                  -> OK
     # edit product                                                     -> OK
     # edit piggybank                                                   -> OK
 

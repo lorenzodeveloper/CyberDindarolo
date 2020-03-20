@@ -8,8 +8,10 @@ from rest_framework.exceptions import AuthenticationFailed
 
 
 class ExpiringTokenAuthentication(TokenAuthentication):
+    """
+    This class extend the TokenAuthentication introducing a validity time to it.
+    """
     def authenticate_credentials(self, key):
-
         try:
             token = self.get_model().objects.get(key=key)
         except self.get_model().DoesNotExist:
@@ -26,7 +28,7 @@ class ExpiringTokenAuthentication(TokenAuthentication):
         return token.user, token
 
 
-# One time token generator
+# One time token generator for email confirmation
 class AccountActivationTokenGenerator(PasswordResetTokenGenerator):
     def _make_hash_value(self, user, timestamp):
         return (
@@ -35,4 +37,15 @@ class AccountActivationTokenGenerator(PasswordResetTokenGenerator):
         )
 
 
+# One time token generator for password reset
+class PasswordResetTokenGenerator(PasswordResetTokenGenerator):
+    def _make_hash_value(self, user, timestamp):
+        return (
+                six.text_type(user.pk) + six.text_type(timestamp) +
+                six.text_type(user.userprofile.password_reset) +
+                six.text_type(format(user.userprofile.password_reset_date, 'U'))
+        )
+
+
 account_activation_token = AccountActivationTokenGenerator()
+password_reset_token = PasswordResetTokenGenerator()

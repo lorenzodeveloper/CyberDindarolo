@@ -24,13 +24,15 @@ from rest_framework.status import (
     HTTP_500_INTERNAL_SERVER_ERROR)
 
 from CyberDindarolo.settings import EMAIL_HOST_USER
-from api.authentication import account_activation_token
+from api.authentication import account_activation_token, password_reset_token
 from api.models import UserProfile, PiggyBank, Product, Purchase, Entry, Stock, Participate, Invitation
 from api.my_helpers import is_blank, is_string_valid_email
-from api.permissions import IsAuthenticatedAndEmailConfirmed
+from api.permissions import IsAuthenticatedAndEmailConfirmed, HasNotTempPassword
 from api.serializers import UserProfileSerializer, PiggyBankSerializer, ProductSerializer, UserSerializer, \
     EntrySerializer, PurchaseSerializer, StockSerializer, InvitationSerializer
 
+
+# ----------------APIVIEWS / VIEWSETS------------
 
 @csrf_exempt
 @api_view(["POST"])
@@ -52,10 +54,18 @@ def login(request):
     if not user.userprofile.email_confirmed:
         return Response({'error': 'Must confirm email before login.'},
                         status=HTTP_403_FORBIDDEN)
+    utc_now = timezone.now()
+
+    if user.userprofile.password_reset and \
+            user.userprofile.password_reset_date < utc_now - datetime.timedelta(hours=24):
+        user.is_active = False
+        user.save()
+        return Response({'error': 'Your temp password is expired and your account will be disabled from now.'
+                                  'Contact support to gain access to your account.'},
+                        status=HTTP_403_FORBIDDEN)
 
     token, created = Token.objects.get_or_create(user=user)
 
-    utc_now = timezone.now()
     if not created and token.created < utc_now - datetime.timedelta(hours=24):
         token.delete()
         token = Token.objects.create(user=user)
@@ -125,43 +135,22 @@ def register(request):
         with transaction.atomic():
             user = AuthUser.objects.create_user(username=username, email=email, password=passwordA,
                                                 first_name=first_name, last_name=last_name)
-            # user.is_active = False
-            # user.save()
 
             # TODO: Use UserSerializer to handle user creation
 
+            # Send email confirmation mail
             send_confirmation_mail(request, user)
 
             return Response({'message': 'User created, please activate your account by verifying your email.'},
                             status=HTTP_201_CREATED)
     except Exception as e:
-        return Response({'error': 'Ops, there was an unexpected error: {}'.format(e.__str__())},
+        return Response({'error': 'Ops, there was an unexpected error: {}'.format(str(e))},
                         status=HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-def send_confirmation_mail(request, user):
-    act_token = account_activation_token.make_token(user)
-    html_message = 'Welcome {},<br>Please click on the link to activate your account.<br><br>Link:<br>' \
-                   '<a href=\'{}\'>Verify</a>'
-    html_message = html_message.format(user.first_name,
-                                       request.build_absolute_uri(reverse('verify_account',
-                                                                          kwargs={
-                                                                              'uidb64': urlsafe_base64_encode(
-                                                                                  force_bytes(
-                                                                                      user.pk)),
-                                                                              'token': str(
-                                                                                  act_token)})))
-    message = html_message.replace("<br>", "\n"). \
-        replace("<a href=\'", ""). \
-        replace("\'>", ""). \
-        replace("</a>", "")
-    send_mail(subject='CyberDindarolo email verification', message=message, html_message=html_message,
-              from_email=EMAIL_HOST_USER, recipient_list=[user.email], fail_silently=False)
 
 
 @csrf_exempt
 @api_view(["GET"])
-@permission_classes((IsAuthenticatedAndEmailConfirmed,))
+@permission_classes((IsAuthenticatedAndEmailConfirmed, HasNotTempPassword,))
 def get_users_by_pattern(request, pattern):
     """
     An APIview for searching User instances by username or email.
@@ -196,7 +185,7 @@ def get_users_by_pattern(request, pattern):
 
 @csrf_exempt
 @api_view(["GET"])
-@permission_classes((IsAuthenticatedAndEmailConfirmed,))
+@permission_classes((IsAuthenticatedAndEmailConfirmed, HasNotTempPassword,))
 def get_piggybanks_by_pattern(request, pattern):
     """
     An APIview for searching PiggyBank instances by name.
@@ -221,7 +210,7 @@ def get_piggybanks_by_pattern(request, pattern):
                     status=HTTP_200_OK)
 
 
-@permission_classes((IsAuthenticatedAndEmailConfirmed,))
+@permission_classes((IsAuthenticatedAndEmailConfirmed, HasNotTempPassword,))
 class PiggyBankViewSet(viewsets.ModelViewSet):
     """
     A viewset for viewing and editing PiggyBank instances.
@@ -257,7 +246,7 @@ class PiggyBankViewSet(viewsets.ModelViewSet):
                         status=HTTP_204_NO_CONTENT)
 
 
-@permission_classes((IsAuthenticatedAndEmailConfirmed,))
+@permission_classes((IsAuthenticatedAndEmailConfirmed, HasNotTempPassword,))
 class ProductViewSet(viewsets.ModelViewSet):
     """
     A viewset for viewing and editing Product instances.
@@ -286,8 +275,6 @@ class UserProfileViewSet(viewsets.ModelViewSet):
     """
     serializer_class = UserProfileSerializer
     queryset = UserProfile.objects.filter(auth_user__is_active=True)
-    # TODO: Handle password change mechanism
-    # Create user means signup
     http_method_names = ['get', 'patch', 'delete']
 
     def get_queryset(self):
@@ -304,6 +291,7 @@ class UserProfileViewSet(viewsets.ModelViewSet):
 
         u_instance = up_instance.auth_user
 
+        # Various check
         if u_instance != request.user:
             return Response({"error": "You don't have the permission to do that."},
                             status=HTTP_403_FORBIDDEN)
@@ -312,32 +300,67 @@ class UserProfileViewSet(viewsets.ModelViewSet):
             return Response({"error": "You don't have the permission to do that. "
                                       "Please use specific api request for piggybanks."},
                             status=HTTP_403_FORBIDDEN)
-        # TODO: GENERATE ONE TIME LINK AND SEND IT TO USER
-        if request.data.get("password", None) is not None:
-            return Response({"error": "You don't have the permission to do that. "
-                                      "Please use specific api request for password change."},
-                            status=HTTP_403_FORBIDDEN)
 
+        if request.data.get("username", None) is not None:
+            return Response({"error": "Can't change your username."},
+                            status=HTTP_400_BAD_REQUEST)
+
+        if request.data.get("password", None) is not None:
+            return Response({"error": "Please provide passwordA and passwordB to change password."},
+                            status=HTTP_400_BAD_REQUEST)
         try:
+            # Password change mechanism
             with transaction.atomic():
-                old_email = u_instance.email
+                passwordA = request.data.get("passwordA", None)
+                passwordB = request.data.get("passwordB", None)
+                if passwordA is not None and passwordB is not None:
+                    if request.data.get("email", None) is not None:
+                        return Response({"error": "Can't change password and email at the same time."},
+                                        status=HTTP_403_FORBIDDEN)
+
+                    if not up_instance.email_confirmed:
+                        return Response({"error": "Can't change password before verifying your email."},
+                                        status=HTTP_403_FORBIDDEN)
+
+                    if passwordA != passwordB:
+                        return Response({'error': 'Passwords must be equal'},
+                                        status=HTTP_400_BAD_REQUEST)
+                    if len(passwordA) < 8:
+                        return Response({'error': 'Password must be 8 chars long or more'},
+                                        status=HTTP_400_BAD_REQUEST)
+                    # Set password and save AuthUser instance
+                    u_instance.set_password(passwordA)
+                    u_instance.save()
+
+                    # Set password reset flag and date to UserProfile instance
+                    up_instance.password_reset = False
+                    up_instance.password_reset_date = timezone.now()
+                    up_instance.save()
+
+                # Save other fields (in request.data)
                 serializer = UserSerializer(u_instance, data=request.data, partial=True)
                 serializer.is_valid(raise_exception=True)
                 serializer.save()
 
+                # Email change mechanism
                 new_email = request.data.get("email", None)
-                if new_email is not None and len(AuthUser.objects.filter(email=new_email)) == 1 \
-                        and new_email != old_email:
-                    up_instance.email_confirmed = False
-                    up_instance.save()
-                    send_confirmation_mail(request, u_instance)
-                else:
-                    raise ValidationError("This email is used by another account / your new_email = your old_email")
+                if new_email is not None:
 
+                    old_email = u_instance.email
+                    if len(AuthUser.objects.filter(email=new_email)) == 1 \
+                            and new_email != old_email:
+                        # Set flag and save and mail user
+                        up_instance.email_confirmed = False
+                        up_instance.save()
+                        send_confirmation_mail(request, u_instance)
+                    else:
+                        raise ValidationError("This email is used by another account / your new_email = your old_email")
+
+                # Return UserProfile JSON
                 resp_data = UserProfileSerializer(up_instance)
-
                 return Response(resp_data.data,
                                 status=HTTP_202_ACCEPTED)
+
         except ValidationError as ve:
             return Response({"error": str(ve)},
                             status=HTTP_400_BAD_REQUEST)
@@ -350,15 +373,19 @@ class UserProfileViewSet(viewsets.ModelViewSet):
         if userprofile.auth_user_id != request.user.id:
             return Response({"error": "You don't have the permission to do that."},
                             status=HTTP_403_FORBIDDEN)
+        # Delete a user = set it to inactive
         request.user.is_active = False
         request.user.save()
-        token = Token.objects.get(user_id=userprofile.auth_user_id)
-        token.delete()
+        try:
+            token = Token.objects.get(user_id=userprofile.auth_user_id)
+            token.delete()
+        except ObjectDoesNotExist:
+            pass
         return Response({'message': 'User successfully deleted. You\'ll be logged out.'},
                         status=HTTP_204_NO_CONTENT)
 
 
-@permission_classes((IsAuthenticatedAndEmailConfirmed,))
+@permission_classes((IsAuthenticatedAndEmailConfirmed, HasNotTempPassword,))
 class EntryViewSet(viewsets.ModelViewSet):
     """
        A viewset for viewing and editing Entry instances.
@@ -512,7 +539,7 @@ class EntryViewSet(viewsets.ModelViewSet):
                 status=HTTP_409_CONFLICT)
 
 
-@permission_classes((IsAuthenticatedAndEmailConfirmed,))
+@permission_classes((IsAuthenticatedAndEmailConfirmed, HasNotTempPassword,))
 class PurchaseViewSet(viewsets.ModelViewSet):
     """
        A viewset for viewing and editing Purchase instances.
@@ -655,7 +682,7 @@ class PurchaseViewSet(viewsets.ModelViewSet):
 
 @csrf_exempt
 @api_view(["GET"])
-@permission_classes((IsAuthenticatedAndEmailConfirmed,))
+@permission_classes((IsAuthenticatedAndEmailConfirmed, HasNotTempPassword,))
 def get_stock_in_pb(request, piggybank):
     """
        An APIView for viewing the stock of a pb instance.
@@ -681,7 +708,7 @@ def get_stock_in_pb(request, piggybank):
 
 @csrf_exempt
 @api_view(["GET"])
-@permission_classes((IsAuthenticatedAndEmailConfirmed,))
+@permission_classes((IsAuthenticatedAndEmailConfirmed, HasNotTempPassword,))
 def get_prod_stock_in_pb(request, piggybank, product):
     """
        An APIView for viewing the stock of a product in pb instance.
@@ -708,7 +735,7 @@ def get_prod_stock_in_pb(request, piggybank, product):
 
 @csrf_exempt
 @api_view(["GET"])
-@permission_classes((IsAuthenticatedAndEmailConfirmed,))
+@permission_classes((IsAuthenticatedAndEmailConfirmed, HasNotTempPassword,))
 def get_users_in_pb(request, piggybank):
     """
        An APIView for viewing users inside pb..
@@ -739,7 +766,7 @@ def get_users_in_pb(request, piggybank):
 
 @csrf_exempt
 @api_view(["GET"])
-@permission_classes((IsAuthenticatedAndEmailConfirmed,))
+@permission_classes((IsAuthenticatedAndEmailConfirmed, HasNotTempPassword,))
 def get_products_by_pattern(request, pattern):
     """
        An APIview for searching Product instances by name.
@@ -755,7 +782,7 @@ def get_products_by_pattern(request, pattern):
                     status=HTTP_200_OK)
 
 
-@permission_classes((IsAuthenticatedAndEmailConfirmed,))
+@permission_classes((IsAuthenticatedAndEmailConfirmed, HasNotTempPassword,))
 class InvitationViewSet(viewsets.ModelViewSet):
     """
       A viewset for viewing and deleting Invitation instances.
@@ -836,7 +863,7 @@ class InvitationViewSet(viewsets.ModelViewSet):
 
 @csrf_exempt
 @api_view(["POST"])
-@permission_classes((IsAuthenticatedAndEmailConfirmed,))
+@permission_classes((IsAuthenticatedAndEmailConfirmed, HasNotTempPassword,))
 def manage_invitation(request, invitation):
     """
        An APIview for managing invitation (accept or decline).
@@ -873,10 +900,57 @@ def manage_invitation(request, invitation):
             status=HTTP_409_CONFLICT)
 
 
+# ---------------------EMAIL METHODS----------------------
+
+def send_token_email(request, user, token_gen, viewname, subject, html_message):
+    """
+    This method send a one time link to the user with the token_gen passed.
+
+    :param user: AuthUser instance to send the email
+    :param token_gen: token generator
+    :param subject: Email subject
+    :param html_message: html message
+    """
+    token = token_gen.make_token(user)
+
+    link = request.build_absolute_uri(reverse(viewname, kwargs={
+        'uidb64': urlsafe_base64_encode(force_bytes(user.pk)),
+        'token': str(token)}
+                                              ))
+
+    html_message = html_message.format(user.first_name, link)
+
+    message = html_message.replace("<br>", "\n"). \
+        replace("<a href=\'", ""). \
+        replace("\'>", ""). \
+        replace("</a>", "")
+
+    send_mail(subject=subject, message=message, html_message=html_message,
+              from_email=EMAIL_HOST_USER, recipient_list=[user.email], fail_silently=False)
+
+
+def send_confirmation_mail(request, user):
+    """
+    This method send an email to the user to verify his email account.
+
+    :param user: AuthUser instance
+    """
+    html_message = 'Welcome {},<br>Please click on the link to activate your account.<br><br>Link:<br>' \
+                   '<a href=\'{}\'>Verify</a>'
+    send_token_email(request, user, account_activation_token, 'verify_account',
+                     'CyberDindarolo email verification', html_message)
+
+
 @csrf_exempt
 @api_view(["GET"])
 @permission_classes((AllowAny,))
 def confirm_email(request, uidb64, token):
+    """
+    This APIView send a one time link to the user mail to verify his mail.
+
+    :param uidb64: user identifier in base64
+    :param token: one time token for email confirmation
+    """
     try:
         uid = force_str(urlsafe_base64_decode(uidb64))
         user = AuthUser.objects.get(pk=uid)
@@ -884,8 +958,6 @@ def confirm_email(request, uidb64, token):
         user = None
 
     if user is not None and account_activation_token.check_token(user, token):
-        # user.is_active = True
-        # user.save()
         user.userprofile.email_confirmed = True
         user.userprofile.save()
         return Response({'message': 'Account successfully verified.'},
@@ -894,3 +966,104 @@ def confirm_email(request, uidb64, token):
         # invalid link
         return Response({'error': 'Invalid link'},
                         status=HTTP_400_BAD_REQUEST)
+
+
+@csrf_exempt
+@api_view(["GET"])
+@permission_classes((AllowAny,))
+def reset_password(request, uidb64, token):
+    """
+    This APIView assigns a temporary password to the user and send it to him via mail.
+
+    :param uidb64: user identifier in base64
+    :param token: one time token for password change
+    """
+    if not request.user.is_anonymous:
+        return Response({"error": "You don't have the permission to do that. Logout before doing this."},
+                        status=HTTP_403_FORBIDDEN)
+    try:
+        uid = force_str(urlsafe_base64_decode(uidb64))
+        user = AuthUser.objects.get(pk=uid)
+    except (TypeError, ValueError, OverflowError, ObjectDoesNotExist):
+        user = None
+
+    if user is not None and password_reset_token.check_token(user, token):
+        # Generate alphanumeric random pwd
+        tmp_password = AuthUser.objects.make_random_password()
+        user.set_password(tmp_password)
+        user.save()
+
+        # Set password reset flag and datetime
+        user.userprofile.password_reset = True
+        user.userprofile.password_reset_date = timezone.now()
+        user.userprofile.save()
+
+        # Send mail
+        message = "Hi {},\nUse this password to login into your CyberDindarolo account and " \
+                  "immediately change password\n\n{}\n\nNote: You have 24 hours to login and change " \
+                  "your password, after that your account will be " \
+                  "disabled for security reason.".format(user.first_name, tmp_password)
+        html_message = message.replace("\n", "<br>")
+
+        send_mail(subject='CyberDindarolo password reset confirmation', message=message, html_message=html_message,
+                  from_email=EMAIL_HOST_USER, recipient_list=[user.email], fail_silently=False)
+
+        return Response({'message': 'Password successfully reset, change password immediately '
+                                    'in order to gain access in future.'},
+                        status=HTTP_202_ACCEPTED)
+    else:
+        # invalid link
+        return Response({'error': 'Invalid link'},
+                        status=HTTP_400_BAD_REQUEST)
+
+
+@csrf_exempt
+@api_view(["POST"])
+@permission_classes((AllowAny,))
+def forgot_password(request):
+    """
+    This APIView send an email to the user to reset his password.
+    """
+    if not request.user.is_anonymous:
+        return Response({"error": "You don't have the permission to do that. Logout before doing this."},
+                        status=HTTP_403_FORBIDDEN)
+    email = request.data.get("email", None)
+    if email is None:
+        return Response({"error": "Email is required."},
+                        status=HTTP_400_BAD_REQUEST)
+    try:
+        user = AuthUser.objects.get(email=email)
+    except ObjectDoesNotExist as oe:
+        user = None
+
+    if user is None:
+        return Response({"error": "No user with this email found."},
+                        status=HTTP_400_BAD_REQUEST)
+
+    if not user.userprofile.email_confirmed:
+        return Response({"error": "You can't reset your password before verifying your account."},
+                        status=HTTP_403_FORBIDDEN)
+
+    # If user has requested a password reset in the last 24 hours
+    if user.userprofile.password_reset or user.userprofile.password_reset_date >= \
+            timezone.now() - timezone.timedelta(hours=24):
+        return Response({"error": "You already did a password change,"
+                                  " check your email or wait 24h to repeat this procedure."},
+                        status=HTTP_403_FORBIDDEN)
+
+    # Send one time link password reset via mail
+    html_message = "Welcome {},<br>Please click on the link to reset your password.<br><br>Link:<br>" \
+                   "<a href=\'{}\'>Reset Password</a><br><br>You did not request a password reset? " \
+                   "Simply ignore this email."
+    send_token_email(request, user, password_reset_token, 'reset_password',
+                     'CyberDindarolo password reset', html_message)
+
+    try:
+        # Delete current token if exist
+        token = Token.objects.get(user=user)
+        token.delete()
+    except ObjectDoesNotExist:
+        pass
+
+    return Response({"message": "Sent email for password reset."},
+                    status=HTTP_200_OK)
