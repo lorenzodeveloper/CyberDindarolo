@@ -21,6 +21,17 @@ class UserSerializer(serializers.ModelSerializer):
         fields = ['id', 'username', 'first_name', 'last_name', 'email']
 
 
+class UserProfileWithoutPBSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source='auth_user.username')
+    first_name = serializers.CharField(source='auth_user.first_name')
+    last_name = serializers.CharField(source='auth_user.last_name')
+    email = serializers.CharField(source='auth_user.email')
+
+    class Meta:
+        model = UserProfile
+        fields = ['auth_user_id', 'username', 'email', 'first_name', 'last_name']
+
+
 class UserProfileSerializer(serializers.ModelSerializer):
     # user = UserSerializer()
     # auth_user_id = serializers.CharField(source='user.id', read_only=True)

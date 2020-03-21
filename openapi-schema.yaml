@@ -1,0 +1,1106 @@
+openapi: 3.0.0
+info:
+  title: CyberDindarolo API
+  description: ""
+  version: ""
+paths:
+  /api/v1/docs/:
+    get:
+      operationId: docs_list
+      responses:
+        "200":
+          description: ""
+      tags:
+        - docs
+  "/api/v1/register/":
+    post:
+      operationId: register_create
+      responses:
+        "201":
+          description: "Sign up success"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/message"
+        "400":
+          description: Fields not passed in request or passwords don't match or invalid email or username/email not unique
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  description: User username
+                  type: string
+                email:
+                  description: User email
+                  type: string
+                first_name:
+                  description: User first name
+                  type: string
+                last_name:
+                  description: User last name
+                  type: string
+                passwordA:
+                  description: password
+                  type: string
+                passwordB:
+                  description: password confirmation
+                  type: string
+              required:
+                - username
+                - email
+                - passwordA
+                - passwordB
+                - first_name
+                - last_name
+      description: Signing up new User instances.
+      summary: Signing up new User instances.
+      tags:
+        - register
+  "/api/v1/login/":
+    post:
+      operationId: login_create
+      responses:
+        "200":
+          description: User logged in successfully
+          content:
+            "application/json":
+              schema:
+                type: object
+                properties:
+                  user_data:
+                    $ref: "#/components/schemas/userProfileWithPB"
+                  token:
+                    description: User auth token
+                    type: string
+        "400":
+          description: Bad request
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/error"
+        "403":
+          description: User email not confirmed or auth token passed to the request or temp password expired
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/error"
+        "404":
+          description: Invalid credentials
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  description: User username
+                  type: string
+                password:
+                  description: User password
+                  type: string
+              required:
+                - username
+                - password
+      description: Log in and get auth token
+      summary: Log in and get auth token
+      tags:
+        - login
+  "/api/v1/logout/":
+    get:
+      security:
+        - Bearer: []
+      responses:
+        "200":
+          description: Logout success
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/message"
+      description: Logout.
+      summary: logout.
+      tags:
+        - logout
+
+  "/api/v1/users/":
+    get:
+      security:
+        - Bearer: []
+      operationId: users_list
+      responses:
+        "200":
+          description: "Get users list, logged user included, without pb"
+          content:
+            "application/json":
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/userProfileWithPB"
+      description: Get logged user info.
+      summary: Get logged user info.
+      tags:
+        - users
+  "/api/v1/users/{auth_user}/":
+    get:
+      security:
+        - Bearer: []
+      operationId: users_read
+      responses:
+        "200":
+          description: "Get user info by id, if id match with request user, pbs are also returned"
+          content:
+            "application/json":
+              schema:
+                type: array
+                items:
+                  oneOf:
+                  - $ref: "#/components/schemas/userProfile"
+                  - $ref: "#/components/schemas/userProfileWithPB"
+
+        "404":
+          description: "User not found"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/detail"
+      parameters:
+        - name: auth_user
+          required: true
+          in: path
+          description: A unique value identifying this user profile.
+          schema:
+            type: string
+      description: A viewset for viewing and editing User instances.
+      summary: A viewset for viewing and editing User instances.
+      tags:
+        - users
+    patch:
+      security:
+        - Bearer: []
+      operationId: users_partial_update
+      responses:
+        "202":
+          description: ""
+      parameters:
+        - name: auth_user
+          required: true
+          in: path
+          description: A unique value identifying this user profile.
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  description: ""
+                  type: string
+                email:
+                  description: ""
+                  type: string
+                first_name:
+                  description: ""
+                  type: string
+                last_name:
+                  description: ""
+                  type: string
+                piggybanks:
+                  description: ""
+                  type: array
+                  items:
+                    type: string
+      description: A viewset for viewing and editing User instances.
+      summary: A viewset for viewing and editing User instances.
+      tags:
+        - users
+    delete:
+      security:
+        - Bearer: []
+      operationId: users_delete
+      responses:
+        "204":
+          description: ""
+      parameters:
+        - name: auth_user
+          required: true
+          in: path
+          description: A unique value identifying this user profile.
+          schema:
+            type: string
+      description: A viewset for viewing and editing User instances.
+      summary: A viewset for viewing and editing User instances.
+      tags:
+        - users
+  "/api/v1/users/inside/{piggybank}/":
+    get:
+      security:
+        - Bearer: []
+      operationId: users_inside_read
+      responses:
+        "200":
+          description: ""
+      parameters:
+        - name: piggybank
+          required: true
+          in: path
+          description: ""
+          schema:
+            type: string
+      description: An APIView for viewing users inside pb..
+      summary: An APIView for viewing users inside pb..
+      tags:
+        - users
+  "/api/v1/users/search/{pattern}/":
+    get:
+      security:
+        - Bearer: []
+      operationId: users_search_read
+      responses:
+        "200":
+          description: ""
+      parameters:
+        - name: pattern
+          required: true
+          in: path
+          description: ""
+          schema:
+            type: string
+      description: An APIview for searching User instances by username or email.
+      summary: An APIview for searching User instances by username or email.
+      tags:
+        - users
+
+
+  "/api/v1/piggybanks/":
+    get:
+      security:
+        - Bearer: []
+      operationId: piggybanks_list
+      responses:
+        "200":
+          description: ""
+      description: A viewset for viewing and editing PiggyBank instances.
+      summary: A viewset for viewing and editing PiggyBank instances.
+      tags:
+        - piggybanks
+    post:
+      security:
+        - Bearer: []
+      operationId: piggybanks_create
+      responses:
+        "201":
+          description: ""
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pb_name:
+                  description: ""
+                  type: string
+                pb_description:
+                  description: ""
+                  type: string
+                created_by:
+                  description: ""
+                  type: string
+                closed:
+                  description: ""
+                  type: boolean
+              required:
+                - created_by
+      description: A viewset for viewing and editing PiggyBank instances.
+      summary: A viewset for viewing and editing PiggyBank instances.
+      tags:
+        - piggybanks
+  "/api/v1/piggybanks/search/{pattern}/":
+    get:
+      security:
+        - Bearer: []
+      operationId: piggybanks_search_read
+      responses:
+        "200":
+          description: ""
+      parameters:
+        - name: pattern
+          required: true
+          in: path
+          description: ""
+          schema:
+            type: string
+      description: An APIview for searching PiggyBank instances by name.
+      summary: An APIview for searching PiggyBank instances by name.
+      tags:
+        - piggybanks
+  "/api/v1/piggybanks/{id}/":
+    get:
+      security:
+        - Bearer: []
+      operationId: piggybanks_read
+      responses:
+        "200":
+          description: ""
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: A unique integer value identifying this piggy bank.
+          schema:
+            type: integer
+      description: A viewset for viewing and editing PiggyBank instances.
+      summary: A viewset for viewing and editing PiggyBank instances.
+      tags:
+        - piggybanks
+    patch:
+      security:
+        - Bearer: []
+      operationId: piggybanks_partial_update
+      responses:
+        "200":
+          description: ""
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: A unique integer value identifying this piggy bank.
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pb_name:
+                  description: ""
+                  type: string
+                pb_description:
+                  description: ""
+                  type: string
+                created_by:
+                  description: ""
+                  type: string
+                closed:
+                  description: ""
+                  type: boolean
+      description: A viewset for viewing and editing PiggyBank instances.
+      summary: A viewset for viewing and editing PiggyBank instances.
+      tags:
+        - piggybanks
+    delete:
+      security:
+        - Bearer: []
+      operationId: piggybanks_delete
+      responses:
+        "204":
+          description: ""
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: A unique integer value identifying this piggy bank.
+          schema:
+            type: integer
+      description: A viewset for viewing and editing PiggyBank instances.
+      summary: A viewset for viewing and editing PiggyBank instances.
+      tags:
+        - piggybanks
+
+  "/api/v1/invitations/":
+    get:
+      security:
+        - Bearer: []
+      operationId: invitations_list
+      responses:
+        "200":
+          description: ""
+      description: A viewset for viewing and deleting Invitation instances.
+      summary: A viewset for viewing and deleting Invitation instances.
+      tags:
+        - invitations
+    post:
+      security:
+        - Bearer: []
+      operationId: invitations_create
+      responses:
+        "201":
+          description: ""
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                inviter:
+                  description: ""
+                  type: string
+                invited:
+                  description: ""
+                  type: string
+                invitation_date:
+                  description: ""
+                  type: string
+                piggybank:
+                  description: ""
+                  type: integer
+              required:
+                - inviter
+                - invited
+                - invitation_date
+                - piggybank
+      description: A viewset for viewing and deleting Invitation instances.
+      summary: A viewset for viewing and deleting Invitation instances.
+      tags:
+        - invitations
+  "/api/v1/invitations/manage/{invitation}/":
+    post:
+      security:
+        - Bearer: []
+      operationId: invitations_manage_create
+      responses:
+        "201":
+          description: ""
+      parameters:
+        - name: invitation
+          required: true
+          in: path
+          description: ""
+          schema:
+            type: string
+      description: An APIview for managing invitation (accept or decline).
+      summary: An APIview for managing invitation (accept or decline).
+      tags:
+        - invitations
+  "/api/v1/invitations/{id}/":
+    get:
+      security:
+        - Bearer: []
+      operationId: invitations_read
+      responses:
+        "200":
+          description: ""
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: A unique integer value identifying this invitation.
+          schema:
+            type: integer
+      description: A viewset for viewing and deleting Invitation instances.
+      summary: A viewset for viewing and deleting Invitation instances.
+      tags:
+        - invitations
+    delete:
+      security:
+        - Bearer: []
+      operationId: invitations_delete
+      responses:
+        "204":
+          description: ""
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: A unique integer value identifying this invitation.
+          schema:
+            type: integer
+      description: A viewset for viewing and deleting Invitation instances.
+      summary: A viewset for viewing and deleting Invitation instances.
+      tags:
+        - invitations
+
+  "/api/v1/products/":
+    get:
+      security:
+        - Bearer: []
+      operationId: products_list
+      responses:
+        "200":
+          description: ""
+      description: A viewset for viewing and editing Product instances.
+      summary: A viewset for viewing and editing Product instances.
+      tags:
+        - products
+    post:
+      security:
+        - Bearer: []
+      operationId: products_create
+      responses:
+        "201":
+          description: ""
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  description: ""
+                  type: string
+                description:
+                  description: ""
+                  type: string
+                pieces:
+                  description: ""
+                  type: integer
+              required:
+                - name
+                - pieces
+      description: A viewset for viewing and editing Product instances.
+      summary: A viewset for viewing and editing Product instances.
+      tags:
+        - products
+  "/api/v1/products/search/{pattern}/":
+    get:
+      security:
+        - Bearer: []
+      operationId: products_search_read
+      responses:
+        "200":
+          description: ""
+      parameters:
+        - name: pattern
+          required: true
+          in: path
+          description: ""
+          schema:
+            type: string
+      description: An APIview for searching Product instances by name.
+      summary: An APIview for searching Product instances by name.
+      tags:
+        - products
+  "/api/v1/products/{id}/":
+    get:
+      security:
+        - Bearer: []
+      operationId: products_read
+      responses:
+        "200":
+          description: ""
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: A unique integer value identifying this product.
+          schema:
+            type: integer
+      description: A viewset for viewing and editing Product instances.
+      summary: A viewset for viewing and editing Product instances.
+      tags:
+        - products
+    patch:
+      security:
+        - Bearer: []
+      operationId: products_partial_update
+      responses:
+        "200":
+          description: ""
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: A unique integer value identifying this product.
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  description: ""
+                  type: string
+                description:
+                  description: ""
+                  type: string
+                pieces:
+                  description: ""
+                  type: integer
+      description: A viewset for viewing and editing Product instances.
+      summary: A viewset for viewing and editing Product instances.
+      tags:
+        - products
+    delete:
+      security:
+        - Bearer: []
+      operationId: products_delete
+      responses:
+        "204":
+          description: ""
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: A unique integer value identifying this product.
+          schema:
+            type: integer
+      description: A viewset for viewing and editing Product instances.
+      summary: A viewset for viewing and editing Product instances.
+      tags:
+        - products
+
+
+  "/api/v1/entries/":
+    get:
+      operationId: entries_list
+      security:
+        - Bearer: []
+      responses:
+        "200":
+          description: "All user's entries"
+          content:
+            "application/json":
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/entry_schema"
+      description: manage Entry instances.
+      summary: manage Entry instances.
+      tags:
+        - entries
+    post:
+      security:
+        - Bearer: []
+      operationId: entries_create
+      responses:
+        "201":
+          description: "Entry success"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/entry_schema"
+        "403":
+          description: Piggybank closed or piggybank not in user's piggybanks
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/error"
+        "409":
+          description: Conflict, someone is updating the same product in this piggybank
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/error"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                product:
+                  description: "product id"
+                  type: integer
+                piggybank:
+                  description: "piggybank id"
+                  type: integer
+                entry_price:
+                  description: "single set price"
+                  type: number
+                  format: double
+                  example: 3.99
+                set_quantity:
+                  description: "set quantity"
+                  type: integer
+              required:
+                - product
+                - piggybank
+                - entry_price
+                - set_quantity
+      description: A viewset for viewing and editing Entry instances.
+      summary: A viewset for viewing and editing Entry instances.
+      tags:
+        - entries
+  "/api/v1/entries/{id}/":
+    get:
+      security:
+        - Bearer: []
+      operationId: entries_read
+      responses:
+        "200":
+          description: "Get single entry"
+          content:
+            "application/json":
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/entry_schema"
+        "404":
+          description: "Entry not found"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/detail"
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: A unique integer value identifying this entry.
+          schema:
+            type: integer
+      description: Get single entry
+      summary: Get single entry.
+      tags:
+        - entries
+    delete:
+      security:
+        - Bearer: []
+      operationId: entries_delete
+      responses:
+        "204":
+          description: "Delete entry success"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/message"
+        "403":
+          description: "Dependency error"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/error"
+        "404":
+          description: "Entry not found"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/detail"
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: A unique integer value identifying this entry.
+          schema:
+            type: integer
+      description: Delete entry.
+      summary: Delete entrys.
+      tags:
+        - entries
+
+  "/api/v1/purchases/":
+    get:
+      security:
+        - Bearer: []
+      operationId: purchases_list
+      responses:
+        "200":
+          description: ""
+      description: A viewset for viewing and editing Purchase instances.
+      summary: A viewset for viewing and editing Purchase instances.
+      tags:
+        - purchases
+    post:
+      security:
+        - Bearer: []
+      operationId: purchases_create
+      responses:
+        "201":
+          description: ""
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                product:
+                  description: ""
+                  type: integer
+                piggybank:
+                  description: ""
+                  type: integer
+                purchaser:
+                  description: ""
+                  type: string
+                purchase_date:
+                  description: ""
+                  type: string
+                unitary_purchase_price:
+                  description: ""
+                  type: number
+                pieces:
+                  description: ""
+                  type: integer
+              required:
+                - product
+                - piggybank
+                - purchaser
+                - purchase_date
+                - unitary_purchase_price
+                - pieces
+      description: A viewset for viewing and editing Purchase instances.
+      summary: A viewset for viewing and editing Purchase instances.
+      tags:
+        - purchases
+  "/api/v1/purchases/{id}/":
+    get:
+      security:
+        - Bearer: []
+      operationId: purchases_read
+      responses:
+        "200":
+          description: ""
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: A unique integer value identifying this purchase.
+          schema:
+            type: integer
+      description: A viewset for viewing and editing Purchase instances.
+      summary: A viewset for viewing and editing Purchase instances.
+      tags:
+        - purchases
+    delete:
+      security:
+        - Bearer: []
+      operationId: purchases_delete
+      responses:
+        "204":
+          description: "Delete purchase success"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/message"
+        "403":
+          description: "Dependency error"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/error"
+        "404":
+          description: "Purchase not found"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/detail"
+      parameters:
+        - name: id
+          required: true
+          in: path
+          description: A unique integer value identifying this purchase.
+          schema:
+            type: integer
+      description: A viewset for viewing and editing Purchase instances.
+      summary: A viewset for viewing and editing Purchase instances.
+      tags:
+        - purchases
+
+
+  "/api/v1/stock/{piggybank}/":
+    get:
+      security:
+        - Bearer: []
+      operationId: stock_read
+      responses:
+        "200":
+          description: ""
+      parameters:
+        - name: piggybank
+          required: true
+          in: path
+          description: ""
+          schema:
+            type: string
+      description: An APIView for viewing the stock of a pb instance.
+      summary: An APIView for viewing the stock of a pb instance.
+      tags:
+        - stock
+  "/api/v1/stock/{piggybank}/{product}/":
+    get:
+      security:
+        - Bearer: []
+      operationId: stock_read_0
+      responses:
+        "200":
+          description: ""
+      parameters:
+        - name: piggybank
+          required: true
+          in: path
+          description: ""
+          schema:
+            type: string
+        - name: product
+          required: true
+          in: path
+          description: ""
+          schema:
+            type: string
+      description: An APIView for viewing the stock of a product in pb instance.
+      summary: An APIView for viewing the stock of a product in pb instance.
+      tags:
+        - stock
+
+  "/api/v1/forgot_password/":
+    post:
+      operationId: forgot_password_create
+      responses:
+        "201":
+          description: ""
+      description: This APIView send an email to the user to reset his password.
+      summary: This APIView send an email to the user to reset his password.
+      tags:
+        - forgot_password
+  "/api/v1/reset_password/{uidb64}/{token}/":
+    get:
+      operationId: reset_password_read
+      responses:
+        "200":
+          description: ""
+      parameters:
+        - name: uidb64
+          required: true
+          in: path
+          description: ""
+          schema:
+            type: string
+        - name: token
+          required: true
+          in: path
+          description: ""
+          schema:
+            type: string
+      description: >-
+        This APIView assigns a temporary password to the user and send it to him
+        via mail.
+
+
+        :param uidb64: user identifier in base64
+
+        :param token: one time token for password change
+      summary: This APIView assigns a temporary password to the user and send it to him
+        via mail.
+      tags:
+        - reset_password
+  "/api/v1/verify_account/{uidb64}/{token}/":
+    get:
+      operationId: verify_account_read
+      responses:
+        "200":
+          description: ""
+      parameters:
+        - name: uidb64
+          required: true
+          in: path
+          description: ""
+          schema:
+            type: string
+        - name: token
+          required: true
+          in: path
+          description: ""
+          schema:
+            type: string
+      description: |-
+        This APIView send a one time link to the user mail to verify his mail.
+
+        :param uidb64: user identifier in base64
+        :param token: one time token for email confirmation
+      summary: This APIView send a one time link to the user mail to verify his mail.
+      tags:
+        - verify_account
+servers:
+  - url: http://127.0.0.1:8000
+components:
+  securitySchemes:
+    Bearer:
+      type: apiKey
+      name: Authorization
+      in: header
+  schemas:
+    entry_schema:
+      properties:
+          id:
+            description: "entry id"
+            type: integer
+          product:
+            description: "entry product id"
+            type: integer
+          piggybank:
+            description: "entry piggybank id"
+            type: integer
+          entry_date:
+            description: "entry date"
+            type: string
+            format: date-time
+          entry_price:
+            description: "entry single set price"
+            type: number
+            format: double
+            example: 3.99
+          entered_by:
+            description: "user id who entered this"
+            type: integer
+          set_quantity:
+            description: "entry set quantity"
+            type: integer
+    userProfileWithPB:
+      properties:
+          auth_user_id:
+            description: "user id"
+            type: integer
+          username:
+            description: "username"
+            type: string
+          email:
+            description: "email"
+            type: string
+          first_name:
+            description: "first name"
+            type: string
+          last_name:
+            description: "last name"
+            type: string
+          piggybanks:
+            type: array
+            items:
+              type: integer
+            example: [1, 2, 3, 4]
+    userProfile:
+      properties:
+          auth_user_id:
+            description: "user id"
+            type: integer
+          username:
+            description: "username"
+            type: string
+          email:
+            description: "email"
+            type: string
+          first_name:
+            description: "first name"
+            type: string
+          last_name:
+            description: "last name"
+            type: string
+    error:
+      type: object
+      properties:
+        error:
+          description: error message
+          type: string
+    detail:
+      type: object
+      properties:
+        detail:
+          description: detail message
+          type: string
+    message:
+      type: object
+      properties:
+        message:
+          description: info message
+          type: string

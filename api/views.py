@@ -29,7 +29,7 @@ from api.models import UserProfile, PiggyBank, Product, Purchase, Entry, Stock, 
 from api.my_helpers import is_blank, is_string_valid_email
 from api.permissions import IsAuthenticatedAndEmailConfirmed, HasNotTempPassword
 from api.serializers import UserProfileSerializer, PiggyBankSerializer, ProductSerializer, UserSerializer, \
-    EntrySerializer, PurchaseSerializer, StockSerializer, InvitationSerializer
+    EntrySerializer, PurchaseSerializer, StockSerializer, InvitationSerializer, UserProfileWithoutPBSerializer
 
 
 # ----------------APIVIEWS / VIEWSETS------------
@@ -41,6 +41,10 @@ def login(request):
     """
     An APIview for logging in.
     """
+    if not request.user.is_anonymous:
+        return Response({"error": "You're already logged in'."},
+                        status=HTTP_403_FORBIDDEN)
+
     username = request.data.get("username")
     password = request.data.get("password")
     if username is None or password is None:
@@ -99,6 +103,10 @@ def register(request):
     """
     An APIView for signing up new User instances.
     """
+    if not request.user.is_anonymous:
+        return Response({"error": "You're alredy signed up and logged in."},
+                        status=HTTP_403_FORBIDDEN)
+
     username = request.data.get("username")
     email = request.data.get("email")
     passwordA = request.data.get("passwordA")
@@ -163,17 +171,16 @@ def get_users_by_pattern(request, pattern):
     valid_email, exc = is_string_valid_email(pattern)
     if valid_email:
         users = UserProfile.objects.filter(auth_user__email=pattern,
-                                           auth_user__is_active=True).select_related()
+                                           auth_user__is_active=True). \
+            exclude(auth_user_id=request.user.id).select_related()
     else:
         users = UserProfile.objects.filter(auth_user__username__icontains=pattern,
-                                           auth_user__is_active=True).select_related()
+                                           auth_user__is_active=True). \
+            exclude(auth_user_id=request.user.id).select_related()
 
     users_serialized_list = []
     for u in users:
-        data = UserProfileSerializer(u).data
-        # Privacy ...
-        data.pop("piggybanks")
-        users_serialized_list.append(data)
+        users_serialized_list.append(UserProfileWithoutPBSerializer(u).data)
 
     if len(users_serialized_list) == 0:
         return Response({'message': 'No users found with that pattern'},
@@ -273,15 +280,24 @@ class UserProfileViewSet(viewsets.ModelViewSet):
     """
     A viewset for viewing and editing User instances.
     """
-    serializer_class = UserProfileSerializer
+    serializer_class = UserProfileWithoutPBSerializer
     queryset = UserProfile.objects.filter(auth_user__is_active=True)
     http_method_names = ['get', 'patch', 'delete']
 
-    def get_queryset(self):
-        # A user can see all details only for himself
-        queryset = self.queryset
-        query_set = queryset.filter(pk=self.request.user)
-        return query_set
+    def retrieve(self, request, *args, **kwargs):
+        pk = int(kwargs.get('pk'))
+        try:
+            up_instance = self.queryset.get(pk=pk)
+        except UserProfile.DoesNotExist as de:
+            return Response({"detail": "Not found."},
+                            status=HTTP_404_NOT_FOUND)
+
+        if pk == request.user.id:
+            return Response(UserProfileSerializer(up_instance).data,
+                            status=HTTP_200_OK)
+        else:
+            return Response(UserProfileWithoutPBSerializer(up_instance).data,
+                            status=HTTP_200_OK)
 
     def partial_update(self, request, *args, **kwargs):
         try:
@@ -751,10 +767,7 @@ def get_users_in_pb(request, piggybank):
 
         serialized_list = []
         for u in user_inside_pb:
-            data = UserProfileSerializer(u).data
-            # Privacy ...
-            data.pop("piggybanks")
-            serialized_list.append(data)
+            serialized_list.append(UserProfileWithoutPBSerializer(u).data)
 
         return Response(serialized_list,
                         status=HTTP_200_OK)
@@ -900,7 +913,7 @@ def manage_invitation(request, invitation):
             status=HTTP_409_CONFLICT)
 
 
-# ---------------------EMAIL METHODS----------------------
+# ---------------------EMAIL METHODS AND VIEWS----------------------
 
 def send_token_email(request, user, token_gen, viewname, subject, html_message):
     """
