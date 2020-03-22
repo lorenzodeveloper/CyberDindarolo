@@ -76,6 +76,17 @@ paths:
       responses:
         "201":
           description: ""
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  example: "john.doe80@example.com"
+              required:
+                - email
       tags:
         - forgot_password
     parameters: []
