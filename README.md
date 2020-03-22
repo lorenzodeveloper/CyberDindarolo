@@ -53,13 +53,20 @@ is the operation you want to do.
 - Login with a `POST` request to `namespace/login/` and store returned `token` somewhere.
 - Now you can use this token for all the future requests. *Note: the token will expire in 24h and you will have
  to repeat the login.*
+ 
+ Example of `curl` request after login:
+```console
+$ curl --location --request GET 'http://localhost:8000/api/v1/users/' \
+--header 'Authorization: Token 057d61c04f95a283f2fa840af6cc03f5be212256'
+[...]
+```
 
-#### What you can do?
-*OpenAPI YAML ready soon*
+## OpenAPI 3.0.0 description:
 
-**DRAFT ONLY AVAILABLE (THERE ARE MANY ERRORS INSIDE IT)**
+- <a href="https://petstore.swagger.io/?url=https://raw.githubusercontent.com/lorenzodeveloper/CyberDindarolo/master/openapi-schema.yaml">OpenAPI Swagger</a>
+*(HTTP_4XX error codes are not reported)*
 
-*TODO*
+*It could be tested only in a local environment as I did not allowed CORS requests.*
 
 ## Author
 - Lorenzo Fiorani

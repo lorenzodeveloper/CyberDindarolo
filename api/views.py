@@ -182,10 +182,6 @@ def get_users_by_pattern(request, pattern):
     for u in users:
         users_serialized_list.append(UserProfileWithoutPBSerializer(u).data)
 
-    if len(users_serialized_list) == 0:
-        return Response({'message': 'No users found with that pattern'},
-                        status=HTTP_404_NOT_FOUND)
-
     return Response(users_serialized_list,
                     status=HTTP_200_OK)
 
@@ -303,7 +299,8 @@ class UserProfileViewSet(viewsets.ModelViewSet):
         try:
             up_instance = self.queryset.get(pk=kwargs.get('pk'))
         except UserProfile.DoesNotExist as de:
-            return Response(status=HTTP_404_NOT_FOUND)
+            return Response({"detail": "Not found."},
+                            status=HTTP_404_NOT_FOUND)
 
         u_instance = up_instance.auth_user
 
@@ -774,7 +771,7 @@ def get_users_in_pb(request, piggybank):
     except ObjectDoesNotExist as oe:
         return Response(
             {"error": "Check your input, piggybank doesn't exist."},
-            status=HTTP_400_BAD_REQUEST)
+            status=HTTP_404_NOT_FOUND)
 
 
 @csrf_exempt
