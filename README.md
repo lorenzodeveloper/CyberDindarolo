@@ -67,7 +67,7 @@ $ curl --location --request GET 'http://localhost:8000/api/v1/users/' \
 
 ## OpenAPI 3.0.0 description:
 
-- <a href="https://petstore.swagger.io/?ul=https://raw.githubusercontent.com/lorenzodeveloper/CyberDindarolo/master/openapi-schema.yaml">OpenAPI Swagger **DRAFT**</a>
+- <a href="https://petstore.swagger.io/?url=https://raw.githubusercontent.com/lorenzodeveloper/CyberDindarolo/master/openapi-schema.yaml">OpenAPI Swagger **DRAFT**</a>
 *(HTTP_4XX error codes have been omitted)*
 
 *It can be tested only in a local environment as I haven't allowed CORS requests.*
