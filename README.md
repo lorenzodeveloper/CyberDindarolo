@@ -11,8 +11,8 @@ Users can create a piggybank where they share with other users
 (who participate to the pb) all the things they bought together.
 
 Each user has a credit:
-- It increases when inserting a product in the piggy bank
-- it decreases when buying something
+- It increases when inserting a product in the piggybank
+- it decreases when buying something from the piggybank
 
 
 ## Original requirements
@@ -68,9 +68,9 @@ $ curl --location --request GET 'http://localhost:8000/api/v1/users/' \
 ## OpenAPI 3.0.0 description:
 
 - <a href="https://petstore.swagger.io/?ul=https://raw.githubusercontent.com/lorenzodeveloper/CyberDindarolo/master/openapi-schema.yaml">OpenAPI Swagger **DRAFT**</a>
-*(HTTP_4XX error codes are not reported)*
+*(HTTP_4XX error codes have been omitted)*
 
-*It could be tested only in a local environment as I haven't allowed CORS requests.*
+*It can be tested only in a local environment as I haven't allowed CORS requests.*
 
 ## Author
 - Lorenzo Fiorani
