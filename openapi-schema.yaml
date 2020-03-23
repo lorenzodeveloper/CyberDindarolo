@@ -19,7 +19,7 @@ paths:
                 type: object
                 properties:
                   user_data:
-                    $ref: "#/components/schemas/UserProfile"
+                    $ref: "#/components/schemas/UserProfileWithoutPB"
                   token:
                     description: User auth token
                     type: string
@@ -963,7 +963,7 @@ components:
           type: string
           readOnly: true
           minLength: 1
-          example: "My Piggybank 1"
+          example: "My PiggyBank 1"
         entry_date:
           title: Entry date
           type: string
@@ -1158,7 +1158,7 @@ components:
           format: decimal
           readOnly: true
           example: 0.75
-          description: "Single piece of the product price"
+          description: "Price of a single piece of product"
         pieces:
           title: Pieces
           type: integer
@@ -1261,7 +1261,7 @@ components:
             minLength: 1
             example: "My PiggyBank 1"
           entry_date:
-            description: "last update date"
+            description: "last update"
             readOnly: true
             type: string
             format: date-time
@@ -1276,7 +1276,7 @@ components:
             type: string
             example: "JohnDoe80"
           unitary_price:
-            description: "price of the single unit of the product"
+            description: "Price of a single piece of product"
             readOnly: true
             type: number
             format: double
