@@ -13,6 +13,9 @@ class PiggyBank(models.Model):
     pb_description = models.CharField(max_length=255, blank=True, null=True)
     closed = models.BooleanField(default=False, null=False)
 
+    class Meta:
+        ordering = ['pb_name']
+
 
 class Participate(models.Model):
     participant = models.ForeignKey('UserProfile', models.CASCADE)
@@ -21,6 +24,7 @@ class Participate(models.Model):
 
     class Meta:
         unique_together = (('participant', 'piggybank'),)
+        ordering = ['piggybank']
 
 
 # We're not changing the auth method, so we create a table just to store user info
@@ -35,12 +39,18 @@ class UserProfile(models.Model):
         return "User {}, username: \"{}\", email: \"{}\"".format(self.user_id, self.auth_user.username,
                                                                  self.auth_user.email)
 
+    class Meta:
+        ordering = ['auth_user__username']
+
 
 class Product(models.Model):
     name = models.CharField(unique=True, max_length=30)
     description = models.TextField(blank=True, null=True)
     # number of pieces that compose the product (1 to N)
     pieces = models.BigIntegerField()
+
+    class Meta:
+        ordering = ['id']
 
 
 # This model will be the history of the stock for every product and pb
@@ -54,6 +64,7 @@ class Stock(models.Model):
 
     class Meta:
         unique_together = (('product', 'piggybank', 'entry_date', 'entered_by'),)
+        ordering = ['product', '-entry_date']
 
 
 class Entry(models.Model):
@@ -67,6 +78,7 @@ class Entry(models.Model):
 
     class Meta:
         unique_together = (('product', 'piggybank', 'entry_date', 'entered_by'),)
+        ordering = ['-entry_date', 'piggybank', 'product', 'entered_by']
 
 
 class Purchase(models.Model):
@@ -79,6 +91,7 @@ class Purchase(models.Model):
 
     class Meta:
         unique_together = (('product', 'piggybank', 'purchase_date', 'purchaser'),)
+        ordering = ['-purchase_date', 'piggybank', 'product', 'purchaser']
 
 
 class Invitation(models.Model):
@@ -89,6 +102,7 @@ class Invitation(models.Model):
 
     class Meta:
         unique_together = (('invited', 'piggybank'),)
+        ordering = ['invitation_date', 'piggybank']
 
 
 # ----------------- SIGNALS ---------------

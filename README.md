@@ -10,6 +10,10 @@ It's a simple piggybank manager application written with python and djangorestfr
 Users can create a piggybank where they share with other users 
 (who participate to the pb) all the things they bought together.
 
+Each user has a credit:
+- It increases when inserting a product in the piggy bank
+- it decreases when buying something
+
 
 ## Original requirements
 *TODO*
@@ -63,10 +67,10 @@ $ curl --location --request GET 'http://localhost:8000/api/v1/users/' \
 
 ## OpenAPI 3.0.0 description:
 
-- <a href="https://petstore.swagger.io/?url=https://raw.githubusercontent.com/lorenzodeveloper/CyberDindarolo/master/openapi-schema.yaml">OpenAPI Swagger</a>
+- <a href="https://petstore.swagger.io/?ul=https://raw.githubusercontent.com/lorenzodeveloper/CyberDindarolo/master/openapi-schema.yaml">OpenAPI Swagger **DRAFT**</a>
 *(HTTP_4XX error codes are not reported)*
 
-*It could be tested only in a local environment as I did not allowed CORS requests.*
+*It could be tested only in a local environment as I haven't allowed CORS requests.*
 
 ## Author
 - Lorenzo Fiorani

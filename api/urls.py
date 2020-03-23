@@ -45,6 +45,7 @@ urlpatterns = [
     path('stock/<int:piggybank>/', views.get_stock_in_pb, name='stock_pb'),
     path('stock/<int:piggybank>/<int:product>/', views.get_prod_stock_in_pb, name='prod_stock_pb'),
 
+    path('credit/<int:piggybank>/', views.get_credit_in_pb, name='credit_pb'),
     path('users/inside/<int:piggybank>/', views.get_users_in_pb, name='users_pb'),
 
     path('invitations/manage/<int:invitation>/', views.manage_invitation, name='manage_invitation'),

@@ -26,10 +26,11 @@ from rest_framework.status import (
 from CyberDindarolo.settings import EMAIL_HOST_USER
 from api.authentication import account_activation_token, password_reset_token
 from api.models import UserProfile, PiggyBank, Product, Purchase, Entry, Stock, Participate, Invitation
-from api.my_helpers import is_blank, is_string_valid_email
+from api.my_helpers import is_blank, is_string_valid_email, serialize_and_paginate
 from api.permissions import IsAuthenticatedAndEmailConfirmed, HasNotTempPassword
 from api.serializers import UserProfileSerializer, PiggyBankSerializer, ProductSerializer, UserSerializer, \
-    EntrySerializer, PurchaseSerializer, StockSerializer, InvitationSerializer, UserProfileWithoutPBSerializer
+    EntrySerializer, PurchaseSerializer, StockSerializer, InvitationSerializer, UserProfileWithoutPBSerializer, \
+    ParticipateSerializer
 
 
 # ----------------APIVIEWS / VIEWSETS------------
@@ -79,7 +80,7 @@ def login(request):
     user.last_login = timezone.now()
     user.save(update_fields=['last_login'])
 
-    return Response({'user_data': UserProfileSerializer(UserProfile.objects.get(auth_user=user)).data,
+    return Response({'user_data': UserProfileWithoutPBSerializer(UserProfile.objects.get(auth_user=user)).data,
                      'token': token.key},
                     status=HTTP_200_OK)
 
@@ -178,12 +179,9 @@ def get_users_by_pattern(request, pattern):
                                            auth_user__is_active=True). \
             exclude(auth_user_id=request.user.id).select_related()
 
-    users_serialized_list = []
-    for u in users:
-        users_serialized_list.append(UserProfileWithoutPBSerializer(u).data)
+    pg_response = serialize_and_paginate(users, request, UserProfileWithoutPBSerializer)
 
-    return Response(users_serialized_list,
-                    status=HTTP_200_OK)
+    return pg_response
 
 
 @csrf_exempt
@@ -201,16 +199,9 @@ def get_piggybanks_by_pattern(request, pattern):
     piggybanks = PiggyBank.objects.filter(pb_name__icontains=pattern,
                                           participate__participant__auth_user=request.user).select_related()
 
-    piggybanks_serialized_list = []
-    for pb in piggybanks:
-        piggybanks_serialized_list.append(PiggyBankSerializer(pb).data)
+    pg_response = serialize_and_paginate(piggybanks, request, PiggyBankSerializer)
 
-    if len(piggybanks_serialized_list) == 0:
-        return Response({'message': 'No piggybanks found with that pattern'},
-                        status=HTTP_404_NOT_FOUND)
-
-    return Response(piggybanks_serialized_list,
-                    status=HTTP_200_OK)
+    return pg_response
 
 
 @permission_classes((IsAuthenticatedAndEmailConfirmed, HasNotTempPassword,))
@@ -280,7 +271,7 @@ class UserProfileViewSet(viewsets.ModelViewSet):
     queryset = UserProfile.objects.filter(auth_user__is_active=True)
     http_method_names = ['get', 'patch', 'delete']
 
-    def retrieve(self, request, *args, **kwargs):
+    """def retrieve(self, request, *args, **kwargs):
         pk = int(kwargs.get('pk'))
         try:
             up_instance = self.queryset.get(pk=pk)
@@ -293,7 +284,7 @@ class UserProfileViewSet(viewsets.ModelViewSet):
                             status=HTTP_200_OK)
         else:
             return Response(UserProfileWithoutPBSerializer(up_instance).data,
-                            status=HTTP_200_OK)
+                            status=HTTP_200_OK)"""
 
     def partial_update(self, request, *args, **kwargs):
         try:
@@ -419,7 +410,7 @@ class EntryViewSet(viewsets.ModelViewSet):
             with transaction.atomic():
                 # Get request data copy in order to be able to modify it
                 data = request.data.copy()
-                request_piggybank = PiggyBank.objects.get(pk=data['piggybank'])
+                request_piggybank = PiggyBank.objects.get(pk=data.get('piggybank'))
                 request_product_id = data.get('product')
 
                 user_piggybanks = PiggyBank.objects.filter(participate__participant__auth_user=request.user)
@@ -568,14 +559,14 @@ class PurchaseViewSet(viewsets.ModelViewSet):
         query_set = queryset.filter(purchaser_id=self.request.user.id)
         return query_set
 
+    # TODO: FIX REQUIRED PARAMS
     def create(self, request, *args, **kwargs):
         try:
             with transaction.atomic():
                 # Get request data copy in order to be able to modify it
                 data = request.data.copy()
-                request_piggybank = PiggyBank.objects.get(pk=data['piggybank'])
+                request_piggybank = PiggyBank.objects.get(pk=data.get('piggybank'))
                 request_product_id = data.get('product')
-                request_pieces = int(data.get('pieces'))
 
                 user_piggybanks = PiggyBank.objects.filter(participate__participant__auth_user=request.user)
                 if request_piggybank not in user_piggybanks:
@@ -602,6 +593,8 @@ class PurchaseViewSet(viewsets.ModelViewSet):
                 serializer = self.get_serializer(data=data)
                 serializer.is_valid(raise_exception=True)
 
+                request_pieces = int(data.get('pieces', None))
+
                 # Calc cost to update purchaser credit
                 tot_cost = current_stock_in_pb.unitary_price * request_pieces
 
@@ -610,7 +603,7 @@ class PurchaseViewSet(viewsets.ModelViewSet):
                                                                 piggybank_id=request_piggybank.id)
 
                 if participate_instance.credit - tot_cost < 0 or \
-                        current_stock_in_pb.pieces - int(data.get('pieces')) < 0:
+                        current_stock_in_pb.pieces - int(data.get('pieces', -100)) < 0:
                     return Response({"error": "Credit insufficient or product pieces insufficient."},
                                     status=HTTP_403_FORBIDDEN)
 
@@ -640,9 +633,9 @@ class PurchaseViewSet(viewsets.ModelViewSet):
                 return Response(serializer.data,
                                 status=HTTP_201_CREATED, headers=headers)
 
-        except ObjectDoesNotExist as oe:
+        except PiggyBank.DoesNotExist as pde:
             return Response(
-                {"error": "Check your input"},
+                {"error": "PiggyBank doesn't exist or not provided."},
                 status=HTTP_400_BAD_REQUEST)
 
         except OperationalError as e:
@@ -706,13 +699,12 @@ def get_stock_in_pb(request, piggybank):
         if request_piggybank not in user_piggybanks:
             return Response({"error": "You don't have the permission to do that."},
                             status=HTTP_403_FORBIDDEN)
-        stock = Stock.objects.filter(piggybank_id=piggybank).order_by('product', '-entry_date').distinct('product')
-        serialized_list = []
-        for st in stock:
-            serialized_list.append(StockSerializer(st).data)
+        stock = Stock.objects.filter(piggybank_id=piggybank).\
+            order_by('product_id', '-entry_date').distinct('product_id')
 
-        return Response(serialized_list,
-                        status=HTTP_200_OK)
+        pg_response = serialize_and_paginate(stock, request, StockSerializer)
+        return pg_response
+
     except ObjectDoesNotExist as oe:
         return Response(
             {"error": "Check your input, piggybank doesn't exist."},
@@ -734,12 +726,12 @@ def get_prod_stock_in_pb(request, piggybank, product):
             return Response({"error": "You don't have the permission to do that."},
                             status=HTTP_403_FORBIDDEN)
         stock = Stock.objects.filter(piggybank=request_piggybank,
-                                     product=request_product).order_by('product', '-entry_date').distinct('product')
-        serialized_list = []
-        for st in stock:
-            serialized_list.append(StockSerializer(st).data)
-        return Response(serialized_list,
-                        status=HTTP_200_OK)
+                                     product=request_product).order_by('product_id', '-entry_date')\
+            .distinct('product_id')
+
+        pg_response = serialize_and_paginate(stock, request, StockSerializer)
+        return pg_response
+
     except ObjectDoesNotExist as oe:
         return Response(
             {"error": "Check your input, piggybank and/or product don't/doesn't exist."},
@@ -760,14 +752,11 @@ def get_users_in_pb(request, piggybank):
             return Response({"error": "You don't have the permission to do that."},
                             status=HTTP_403_FORBIDDEN)
 
-        user_inside_pb = UserProfile.objects.filter(participate__piggybank=piggybank)
+        user_inside_pb = Participate.objects.filter(piggybank=piggybank)
 
-        serialized_list = []
-        for u in user_inside_pb:
-            serialized_list.append(UserProfileWithoutPBSerializer(u).data)
+        pg_response = serialize_and_paginate(user_inside_pb, request, ParticipateSerializer)
+        return pg_response
 
-        return Response(serialized_list,
-                        status=HTTP_200_OK)
     except ObjectDoesNotExist as oe:
         return Response(
             {"error": "Check your input, piggybank doesn't exist."},
@@ -783,13 +772,8 @@ def get_products_by_pattern(request, pattern):
     """
     products = Product.objects.filter(name__icontains=pattern)
 
-    serialized_list = []
-    for p in products:
-        data = ProductSerializer(p).data
-        serialized_list.append(data)
-
-    return Response(serialized_list,
-                    status=HTTP_200_OK)
+    pg_response = serialize_and_paginate(products, request, ProductSerializer)
+    return pg_response
 
 
 @permission_classes((IsAuthenticatedAndEmailConfirmed, HasNotTempPassword,))
@@ -813,7 +797,7 @@ class InvitationViewSet(viewsets.ModelViewSet):
         # Get request data copy in order to be able to modify it
         data = request.data.copy()
         try:
-            request_piggybank = PiggyBank.objects.get(pk=data['piggybank'])
+            request_piggybank = PiggyBank.objects.get(pk=data.get('piggybank'))
             request_invited = UserProfile.objects.get(pk=data.get('invited'))
         except ObjectDoesNotExist as oe:
             return Response({"error": "Check yur input, user / piggybank not found."},
@@ -1077,3 +1061,27 @@ def forgot_password(request):
 
     return Response({"message": "Sent email for password reset."},
                     status=HTTP_200_OK)
+
+
+@csrf_exempt
+@api_view(["GET"])
+@permission_classes((IsAuthenticatedAndEmailConfirmed, HasNotTempPassword,))
+def get_credit_in_pb(request, piggybank):
+    """
+       An APIView for viewing user credit in pb.
+    """
+    try:
+        request_piggybank = PiggyBank.objects.get(pk=piggybank)
+        user_piggybanks = PiggyBank.objects.filter(participate__participant__auth_user=request.user)
+        if request_piggybank not in user_piggybanks:
+            return Response({"error": "You don't have the permission to do that."},
+                            status=HTTP_403_FORBIDDEN)
+
+        credit = Participate.objects.get(participant__auth_user=request.user, piggybank=request_piggybank).credit
+
+        return Response({'credit': credit},
+                        status=HTTP_200_OK)
+    except ObjectDoesNotExist as oe:
+        return Response(
+            {"error": "Check your input, piggybank doesn't exist."},
+            status=HTTP_404_NOT_FOUND)

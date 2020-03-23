@@ -2,6 +2,27 @@ import re
 
 from django.core.exceptions import ValidationError
 from django.core.validators import EmailValidator
+from rest_framework.pagination import PageNumberPagination
+
+
+def serialize_and_paginate(queryset, request, model_serializer, pagination=PageNumberPagination, page_size=10):
+    """
+
+    :param request: request
+    :param queryset: The queryset of the response
+    :param model_serializer: Serializer class of the queryset
+    :param pagination: pagination class
+    :param page_size: elements per page
+    :return: paginated response
+    """
+
+    paginator = pagination()
+    paginator.page_size = page_size
+
+    result_page = paginator.paginate_queryset(queryset, request)
+    serializer = model_serializer(result_page, many=True)
+
+    return paginator.get_paginated_response(serializer.data)
 
 
 def is_blank(my_string):
