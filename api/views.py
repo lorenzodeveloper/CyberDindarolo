@@ -157,6 +157,8 @@ def register(request):
                         status=HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+# -----------------------SEARCH BY PATTERN VIEWS------------------
+
 @csrf_exempt
 @api_view(["GET"])
 @permission_classes((IsAuthenticatedAndEmailConfirmed, HasNotTempPassword,))
@@ -203,6 +205,7 @@ def get_piggybanks_by_pattern(request, pattern):
 
     return pg_response
 
+# ----------------------------------------------------
 
 @permission_classes((IsAuthenticatedAndEmailConfirmed, HasNotTempPassword,))
 class PiggyBankViewSet(viewsets.ModelViewSet):
@@ -743,7 +746,7 @@ def get_prod_stock_in_pb(request, piggybank, product):
 @permission_classes((IsAuthenticatedAndEmailConfirmed, HasNotTempPassword,))
 def get_users_in_pb(request, piggybank):
     """
-       An APIView for viewing users inside pb..
+       An APIView for viewing users inside pb.
     """
     try:
         request_piggybank = PiggyBank.objects.get(pk=piggybank)
@@ -805,6 +808,10 @@ class InvitationViewSet(viewsets.ModelViewSet):
 
         if request.user == request_invited:
             return Response({"error": "Why are you trying to invite yourself to join your pb?"},
+                            status=HTTP_403_FORBIDDEN)
+
+        if not request_invited.auth_user.is_active:
+            return Response({"error": "Invited user's account deleted."},
                             status=HTTP_403_FORBIDDEN)
 
         user_piggybanks = PiggyBank.objects.filter(participate__participant__auth_user=request.user)
@@ -894,7 +901,7 @@ def manage_invitation(request, invitation):
             status=HTTP_409_CONFLICT)
 
 
-# ---------------------EMAIL METHODS AND VIEWS----------------------
+# ---------------------EMAIL METHODS AND OTHER VIEWS----------------------
 
 def send_token_email(request, user, token_gen, viewname, subject, html_message):
     """
@@ -983,28 +990,33 @@ def reset_password(request, uidb64, token):
 
     if user is not None and password_reset_token.check_token(user, token):
         # Generate alphanumeric random pwd
-        tmp_password = AuthUser.objects.make_random_password()
-        user.set_password(tmp_password)
-        user.save()
+        try:
+            with transaction.atomic():
+                tmp_password = AuthUser.objects.make_random_password()
+                user.set_password(tmp_password)
+                user.save()
 
-        # Set password reset flag and datetime
-        user.userprofile.password_reset = True
-        user.userprofile.password_reset_date = timezone.now()
-        user.userprofile.save()
+                # Set password reset flag and datetime
+                user.userprofile.password_reset = True
+                user.userprofile.password_reset_date = timezone.now()
+                user.userprofile.save()
 
-        # Send mail
-        message = "Hi {},\nUse this password to login into your CyberDindarolo account and " \
-                  "immediately change password\n\n{}\n\nNote: You have 24 hours to login and change " \
-                  "your password, after that your account will be " \
-                  "disabled for security reason.".format(user.first_name, tmp_password)
-        html_message = message.replace("\n", "<br>")
+                # Send mail
+                message = "Hi {},\nUse this password to login into your CyberDindarolo account and " \
+                          "immediately change password\n\n{}\n\nNote: You have 24 hours to login and change " \
+                          "your password, after that your account will be " \
+                          "disabled for security reason.".format(user.first_name, tmp_password)
+                html_message = message.replace("\n", "<br>")
 
-        send_mail(subject='CyberDindarolo password reset confirmation', message=message, html_message=html_message,
-                  from_email=EMAIL_HOST_USER, recipient_list=[user.email], fail_silently=False)
+                send_mail(subject='CyberDindarolo password reset confirmation', message=message, html_message=html_message,
+                          from_email=EMAIL_HOST_USER, recipient_list=[user.email], fail_silently=False)
 
-        return Response({'message': 'Password successfully reset, change password immediately '
-                                    'in order to gain access in future.'},
-                        status=HTTP_202_ACCEPTED)
+                return Response({'message': 'Password successfully reset, change password immediately '
+                                            'in order to gain access in future.'},
+                                status=HTTP_202_ACCEPTED)
+        except Exception as e:
+            return Response({'error': 'Ops, there was an unexpected error: {}'.format(str(e))},
+                            status=HTTP_500_INTERNAL_SERVER_ERROR)
     else:
         # invalid link
         return Response({'error': 'Invalid link'},
