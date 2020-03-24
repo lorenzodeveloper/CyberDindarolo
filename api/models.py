@@ -126,7 +126,6 @@ def create_participate(sender, instance, created, **kwargs):
         Participate.objects.create(participant=instance.created_by, piggybank=instance)
 
 
-# TODO: find out if this is useless or not.
 @receiver(post_save, sender=PiggyBank)
 def save_participate(sender, instance, **kwargs):
     for p in instance.participate_set.all():

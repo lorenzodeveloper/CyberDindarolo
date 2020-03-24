@@ -145,8 +145,6 @@ def register(request):
             user = AuthUser.objects.create_user(username=username, email=email, password=passwordA,
                                                 first_name=first_name, last_name=last_name)
 
-            # TODO: Use UserSerializer to handle user creation
-
             # Send email confirmation mail
             send_confirmation_mail(request, user)
 
@@ -205,6 +203,7 @@ def get_piggybanks_by_pattern(request, pattern):
 
     return pg_response
 
+
 # ----------------------------------------------------
 
 @permission_classes((IsAuthenticatedAndEmailConfirmed, HasNotTempPassword,))
@@ -239,8 +238,7 @@ class PiggyBankViewSet(viewsets.ModelViewSet):
                             status=HTTP_403_FORBIDDEN)
         piggybank.closed = True
         piggybank.save()
-        return Response({'message': 'Piggybank successfully deleted'},
-                        status=HTTP_204_NO_CONTENT)
+        return Response(status=HTTP_204_NO_CONTENT)
 
 
 @permission_classes((IsAuthenticatedAndEmailConfirmed, HasNotTempPassword,))
@@ -261,8 +259,7 @@ class ProductViewSet(viewsets.ModelViewSet):
                                       " The product was entered or bought by someone else"},
                             status=HTTP_403_FORBIDDEN)
         product.delete()
-        return Response({'message': 'Product successfully deleted'},
-                        status=HTTP_204_NO_CONTENT)
+        return Response(status=HTTP_204_NO_CONTENT)
 
 
 @permission_classes((IsAuthenticatedAndEmailConfirmed,))
@@ -388,8 +385,7 @@ class UserProfileViewSet(viewsets.ModelViewSet):
             token.delete()
         except ObjectDoesNotExist:
             pass
-        return Response({'message': 'User successfully deleted. You\'ll be logged out.'},
-                        status=HTTP_204_NO_CONTENT)
+        return Response(status=HTTP_204_NO_CONTENT)
 
 
 @permission_classes((IsAuthenticatedAndEmailConfirmed, HasNotTempPassword,))
@@ -537,8 +533,7 @@ class EntryViewSet(viewsets.ModelViewSet):
                 related_stock.delete()
                 participate_instance.save()
 
-                return Response({'message': 'Entry successfully deleted.'},
-                                status=HTTP_204_NO_CONTENT)
+                return Response(status=HTTP_204_NO_CONTENT)
         except OperationalError as e:
             return Response(
                 {"error": "Ops, it looks like someone is trying to modify the content of this pb at the "
@@ -562,7 +557,6 @@ class PurchaseViewSet(viewsets.ModelViewSet):
         query_set = queryset.filter(purchaser_id=self.request.user.id)
         return query_set
 
-    # TODO: FIX REQUIRED PARAMS
     def create(self, request, *args, **kwargs):
         try:
             with transaction.atomic():
@@ -680,8 +674,7 @@ class PurchaseViewSet(viewsets.ModelViewSet):
                 purchase.delete()
                 related_stock.delete()
                 participate_instance.save()
-                return Response({'message': 'Purchase successfully deleted.'},
-                                status=HTTP_204_NO_CONTENT)
+                return Response(status=HTTP_204_NO_CONTENT)
         except OperationalError as e:
             return Response(
                 {"error": "Ops, it looks like someone is trying to modify the content of this pb at the "
@@ -702,7 +695,7 @@ def get_stock_in_pb(request, piggybank):
         if request_piggybank not in user_piggybanks:
             return Response({"error": "You don't have the permission to do that."},
                             status=HTTP_403_FORBIDDEN)
-        stock = Stock.objects.filter(piggybank_id=piggybank).\
+        stock = Stock.objects.filter(piggybank_id=piggybank). \
             order_by('product_id', '-entry_date').distinct('product_id')
 
         pg_response = serialize_and_paginate(stock, request, StockSerializer)
@@ -729,7 +722,7 @@ def get_prod_stock_in_pb(request, piggybank, product):
             return Response({"error": "You don't have the permission to do that."},
                             status=HTTP_403_FORBIDDEN)
         stock = Stock.objects.filter(piggybank=request_piggybank,
-                                     product=request_product).order_by('product_id', '-entry_date')\
+                                     product=request_product).order_by('product_id', '-entry_date') \
             .distinct('product_id')
 
         pg_response = serialize_and_paginate(stock, request, StockSerializer)
@@ -843,7 +836,6 @@ class InvitationViewSet(viewsets.ModelViewSet):
         return Response(serializer.data,
                         status=HTTP_201_CREATED, headers=headers)
 
-    # TODO: Check if this method is necessary or not
     def destroy(self, request, *args, **kwargs):
         try:
             with transaction.atomic():
@@ -852,8 +844,7 @@ class InvitationViewSet(viewsets.ModelViewSet):
                     return Response({"error": "You don't have the permission to do that."},
                                     status=HTTP_403_FORBIDDEN)
                 invitation.delete()
-                return Response({'message': 'Invitation successfully deleted.'},
-                                status=HTTP_204_NO_CONTENT)
+                return Response(status=HTTP_204_NO_CONTENT)
 
         except OperationalError as e:
             return Response(
@@ -1008,7 +999,8 @@ def reset_password(request, uidb64, token):
                           "disabled for security reason.".format(user.first_name, tmp_password)
                 html_message = message.replace("\n", "<br>")
 
-                send_mail(subject='CyberDindarolo password reset confirmation', message=message, html_message=html_message,
+                send_mail(subject='CyberDindarolo password reset confirmation', message=message,
+                          html_message=html_message,
                           from_email=EMAIL_HOST_USER, recipient_list=[user.email], fail_silently=False)
 
                 return Response({'message': 'Password successfully reset, change password immediately '
