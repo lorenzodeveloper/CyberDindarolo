@@ -1107,9 +1107,9 @@ components:
           example: 6
         valid_for_piggybank:
           title: Valid_for_piggybank
-            type: integer
-            example: 1
-            description: "This product will be visible only to those who have joined the PG."
+          type: integer
+          example: 1
+          description: "This product will be visible only to those who have joined the PG."
     Purchase:
       required:
         - product
