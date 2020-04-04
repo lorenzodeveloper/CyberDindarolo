@@ -1079,6 +1079,7 @@ components:
       required:
         - name
         - pieces
+        - valid_for_piggybank
       type: object
       properties:
         id:
@@ -1104,6 +1105,11 @@ components:
           maximum: 9223372036854776000
           minimum: 1
           example: 6
+        valid_for_piggybank:
+          title: Valid_for_piggybank
+            type: integer
+            example: 1
+            description: "This product will be visible only to those who have joined the PG."
     Purchase:
       required:
         - product

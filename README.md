@@ -89,7 +89,7 @@ to repeat the login.*
 **Example of `curl` request after login**
 ```console
 $ curl --location --request GET 'http://localhost:8000/api/v1/users/' \
---header 'Authorization: Token 057d61c04f95a283f2fa840af6cc03f5be212256'
+$ --header 'Authorization: Token 057d61c04f95a283f2fa840af6cc03f5be212256'
 [...]
 ```
 
@@ -108,7 +108,7 @@ closed PG or you're trying to edit a PG that isn't yours, etc...)
 - **404**: 404 not found
 - **409**: *Conflict*            -> concurrent operations running
 
-*It can be tested only in a local environment as I haven't allowed CORS requests.*
+*It can be tested only in a local environment of swagger as I haven't allowed CORS requests.*
 
 ## Author
 - Lorenzo Fiorani

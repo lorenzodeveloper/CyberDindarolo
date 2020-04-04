@@ -84,7 +84,7 @@ class ProductSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Product
-        fields = ['id', 'name', 'description', 'pieces']
+        fields = ['id', 'name', 'description', 'pieces', 'valid_for_piggybank']
 
 
 class EntrySerializer(serializers.ModelSerializer):

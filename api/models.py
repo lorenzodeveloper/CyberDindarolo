@@ -44,13 +44,15 @@ class UserProfile(models.Model):
 
 
 class Product(models.Model):
-    name = models.CharField(unique=True, max_length=30)
+    name = models.CharField(max_length=30)
     description = models.TextField(blank=True, null=True)
     # number of pieces that compose the product (1 to N)
     pieces = models.BigIntegerField()
+    valid_for_piggybank = models.ForeignKey(PiggyBank, models.DO_NOTHING, null=False)
 
     class Meta:
         ordering = ['id']
+        unique_together = (('name', 'valid_for_piggybank'),)
 
 
 # This model will be the history of the stock for every product and pb

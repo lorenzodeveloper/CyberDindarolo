@@ -250,6 +250,66 @@ class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.all()
     http_method_names = ['get', 'post', 'patch', 'delete']
 
+    def get_queryset(self):
+        queryset = self.queryset
+        # You can see products inserted in one of your piggybanks
+        user_piggybanks = PiggyBank.objects.filter(participate__participant__auth_user=self.request.user)
+        query_set = queryset.filter(valid_for_piggybank__in=user_piggybanks)
+        return query_set
+
+    def create(self, request, *args, **kwargs):
+        try:
+            req = request.data.get('valid_for_piggybank', None)
+            if is_blank(str(req)):
+                raise PiggyBank.DoesNotExist
+            request_piggybank = PiggyBank.objects.get(pk=req)
+            user_piggybanks = PiggyBank.objects.filter(participate__participant__auth_user=self.request.user)
+
+            if request_piggybank not in user_piggybanks:
+                return Response({"error": "You don't have the permission to do that."},
+                                status=HTTP_403_FORBIDDEN)
+
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+
+            headers = self.get_success_headers(serializer.data)
+            return Response(serializer.data,
+                            status=HTTP_201_CREATED, headers=headers)
+
+        except PiggyBank.DoesNotExist as oe:
+            return Response(
+                {"error": "PiggyBank not passed or doesn't exist. Check your input."},
+                status=HTTP_400_BAD_REQUEST)
+
+    def partial_update(self, request, *args, **kwargs):
+        try:
+            pr_instance = self.queryset.get(pk=kwargs.get('pk'))
+        except UserProfile.DoesNotExist as de:
+            return Response({"detail": "Not found."},
+                            status=HTTP_404_NOT_FOUND)
+
+        user_piggybanks = PiggyBank.objects.filter(participate__participant__auth_user=self.request.user)
+
+        # Various check
+        if pr_instance.valid_for_piggybank not in user_piggybanks:
+            return Response({"error": "You don't have the permission to do that."},
+                            status=HTTP_403_FORBIDDEN)
+
+        request_valid_for_piggybank = request.data.get('valid_for_piggybank', None)
+
+        if request_valid_for_piggybank is not None:
+            return Response({"error": "You can't change \'valid_for_piggybank\' field. "
+                                      "Delete it and re-create it, if you want to change it."},
+                            status=HTTP_403_FORBIDDEN)
+
+        serializer = ProductSerializer(pr_instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(serializer.data,
+                        status=HTTP_202_ACCEPTED)
+
     def destroy(self, request, *args, **kwargs):
         product = self.get_object()
         purchases = Purchase.objects.filter(product=product.id)
@@ -766,7 +826,8 @@ def get_products_by_pattern(request, pattern):
     """
        An APIview for searching Product instances by name.
     """
-    products = Product.objects.filter(name__icontains=pattern)
+    user_piggybanks = PiggyBank.objects.filter(participate__participant__auth_user=request.user)
+    products = Product.objects.filter(name__icontains=pattern, valid_for_piggybank__in=user_piggybanks)
 
     pg_response = serialize_and_paginate(products, request, ProductSerializer)
     return pg_response
