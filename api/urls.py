@@ -34,12 +34,12 @@ urlpatterns = [
 
     path('', include(router.urls)),
 
-    re_path('^users/search/(?P<pattern>[-a-zA-Z0-9_@.]{3,254})/$', views.get_users_by_pattern,
+    re_path('^users/search/(?P<pattern>[-a-zA-Z0-9_@.]{1,254})/$', views.get_users_by_pattern,
             name='search_user'),
-    re_path('^piggybanks/search/(?P<pattern>[-a-zA-Z0-9_@.]{3,254})/$', views.get_piggybanks_by_pattern,
+    re_path('^piggybanks/search/(?P<pattern>[- a-zA-Z0-9_@.]{1,254})/$', views.get_piggybanks_by_pattern,
             name='search_piggybank'),
 
-    re_path('^products/search/(?P<pattern>[-a-zA-Z0-9_@.]{3,254})/$', views.get_products_by_pattern,
+    re_path('^products/search/(?P<pattern>[- a-zA-Z0-9_@.]{1,254})/$', views.get_products_by_pattern,
             name='search_product'),
 
     path('stock/<int:piggybank>/', views.get_stock_in_pb, name='stock_pb'),

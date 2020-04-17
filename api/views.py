@@ -165,9 +165,9 @@ def get_users_by_pattern(request, pattern):
     An APIview for searching User instances by username or email.
     """
 
-    if not is_blank(pattern) and len(pattern) < 3:
-        return Response({'error': 'Pattern must be 3 chars long at least'},
-                        status=HTTP_400_BAD_REQUEST)
+    # if not is_blank(pattern) and len(pattern) < 3:
+    #     return Response({'error': 'Pattern must be 3 chars long at least'},
+    #                     status=HTTP_400_BAD_REQUEST)
 
     valid_email, exc = is_string_valid_email(pattern)
     if valid_email:
@@ -192,9 +192,9 @@ def get_piggybanks_by_pattern(request, pattern):
     An APIview for searching PiggyBank instances by name.
     """
 
-    if not is_blank(pattern) and len(pattern) < 3:
-        return Response({'error': 'Pattern must be 3 chars long at least'},
-                        status=HTTP_400_BAD_REQUEST)
+    # if not is_blank(pattern) and len(pattern) < 3:
+    #     return Response({'error': 'Pattern must be 3 chars long at least'},
+    #                     status=HTTP_400_BAD_REQUEST)
 
     piggybanks = PiggyBank.objects.filter(pb_name__icontains=pattern,
                                           participate__participant__auth_user=request.user).select_related()
@@ -205,7 +205,7 @@ def get_piggybanks_by_pattern(request, pattern):
 
 
 # ----------------------------------------------------
-
+# TODO: MAKE PATCH REQUESTS RETURN 200
 @permission_classes((IsAuthenticatedAndEmailConfirmed, HasNotTempPassword,))
 class PiggyBankViewSet(viewsets.ModelViewSet):
     """

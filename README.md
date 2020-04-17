@@ -3,7 +3,8 @@
 *Disclaimer: This is a project with educational purposes only as it's the result of
 "Mobile & Web Applications" class.*
 
-**This is only the backend API of the project, the frontend will be ready soon and uploaded to another github repo.**
+**This is only the backend API of the project, the frontend is available 
+<a href="https://github.com/lorenzodeveloper/CyberDindarolo_MobileApp">here</a>.**
 
 It's a simple piggybank (PG) manager application, written in python, using the djangorestframework.
 

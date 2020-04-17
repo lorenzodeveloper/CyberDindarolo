@@ -51,7 +51,7 @@ class Product(models.Model):
     valid_for_piggybank = models.ForeignKey(PiggyBank, models.DO_NOTHING, null=False)
 
     class Meta:
-        ordering = ['id']
+        ordering = ['-id']
         unique_together = (('name', 'valid_for_piggybank'),)
 
 
