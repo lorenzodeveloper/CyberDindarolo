@@ -236,8 +236,14 @@ class PiggyBankViewSet(viewsets.ModelViewSet):
         if piggybank not in user_piggybanks:
             return Response({"error": "You don't have the permission to do that."},
                             status=HTTP_403_FORBIDDEN)
-        piggybank.closed = True
-        piggybank.save()
+        participants = Participate.objects.filter(piggybank_id=piggybank.id)
+        invitations = Invitation.objects.filter(piggybank_id=piggybank.id)
+        # If someone else joined the piggybank or was invited to join it, we set it to closed
+        if len(participants) > 1 or len(invitations) > 0:
+            piggybank.closed = True
+            piggybank.save()
+        else:
+            piggybank.delete()
         return Response(status=HTTP_204_NO_CONTENT)
 
 
