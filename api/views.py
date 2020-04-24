@@ -254,7 +254,9 @@ class ProductViewSet(viewsets.ModelViewSet):
         queryset = self.queryset
         # You can see products inserted in one of your piggybanks
         user_piggybanks = PiggyBank.objects.filter(participate__participant__auth_user=self.request.user)
-        query_set = queryset.filter(valid_for_piggybank__in=user_piggybanks)
+        entries = Entry.objects.filter(piggybank__in=user_piggybanks)
+        query_set = queryset.filter(
+            models.Q(valid_for_piggybank__in=user_piggybanks) | models.Q(id__in=entries.values('product_id')))
         return query_set
 
     def create(self, request, *args, **kwargs):
