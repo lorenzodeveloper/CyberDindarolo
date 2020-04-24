@@ -286,7 +286,7 @@ paths:
               $ref: "#/components/schemas/UserProfileWithoutPB"
         required: true
       responses:
-        "202":
+        "200":
           description: ""
           content:
             application/json:
@@ -758,7 +758,7 @@ paths:
       requestBody:
         $ref: "#/components/requestBodies/PiggyBank"
       responses:
-        "202":
+        "200":
           description: ""
           content:
             application/json:
@@ -884,7 +884,7 @@ paths:
       requestBody:
         $ref: "#/components/requestBodies/Product"
       responses:
-        "202":
+        "200":
           description: ""
           content:
             application/json:

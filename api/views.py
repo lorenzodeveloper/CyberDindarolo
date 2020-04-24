@@ -20,7 +20,7 @@ from rest_framework.status import (
     HTTP_400_BAD_REQUEST,
     HTTP_404_NOT_FOUND,
     HTTP_200_OK,
-    HTTP_201_CREATED, HTTP_403_FORBIDDEN, HTTP_202_ACCEPTED, HTTP_204_NO_CONTENT, HTTP_409_CONFLICT,
+    HTTP_201_CREATED, HTTP_403_FORBIDDEN, HTTP_204_NO_CONTENT, HTTP_409_CONFLICT,
     HTTP_500_INTERNAL_SERVER_ERROR)
 
 from CyberDindarolo.settings import EMAIL_HOST_USER
@@ -136,7 +136,7 @@ def register(request):
         return Response({'error': 'Email is not valid.'},
                         status=HTTP_400_BAD_REQUEST)
 
-    users = AuthUser.objects.filter(models.Q(username=username) | models.Q(email=email))
+    users = AuthUser.objects.filter(models.Q(username=username) | models.Q(is_active=True, email=email))
     if len(users) != 0:
         return Response({'error': 'There is already a user with that username/email.'},
                         status=HTTP_400_BAD_REQUEST)
@@ -308,7 +308,7 @@ class ProductViewSet(viewsets.ModelViewSet):
         serializer.save()
 
         return Response(serializer.data,
-                        status=HTTP_202_ACCEPTED)
+                        status=HTTP_200_OK)
 
     def destroy(self, request, *args, **kwargs):
         product = self.get_object()
@@ -348,7 +348,7 @@ class UserProfileViewSet(viewsets.ModelViewSet):
 
     def partial_update(self, request, *args, **kwargs):
         try:
-            up_instance = self.queryset.get(pk=kwargs.get('pk'))
+             up_instance = self.queryset.get(pk=kwargs.get('pk'))
         except UserProfile.DoesNotExist as de:
             return Response({"detail": "Not found."},
                             status=HTTP_404_NOT_FOUND)
@@ -423,12 +423,13 @@ class UserProfileViewSet(viewsets.ModelViewSet):
                 # Return UserProfile JSON
                 resp_data = UserProfileSerializer(up_instance)
                 return Response(resp_data.data,
-                                status=HTTP_202_ACCEPTED)
+                                status=HTTP_200_OK)
 
         except ValidationError as ve:
             return Response({"error": str(ve)},
                             status=HTTP_400_BAD_REQUEST)
         except Exception as e:
+            print(str(e))
             return Response({"error": "Something bad happened, " + str(e)},
                             status=HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -497,10 +498,10 @@ class EntryViewSet(viewsets.ModelViewSet):
                     .annotate(tot_pieces=ExpressionWrapper(models.F('set_quantity') * models.F('product__pieces'),
                                                            output_field=BigIntegerField())) \
                     .annotate(tot_cost=ExpressionWrapper(models.F('set_quantity') * models.F('entry_price'),
-                                                         output_field=DecimalField(max_digits=6, decimal_places=2))) \
+                                                         output_field=DecimalField(max_digits=10, decimal_places=2))) \
                     .annotate(unitary_cost=ExpressionWrapper(models.F('entry_price') / models.F('product__pieces'),
                                                              output_field=
-                                                             DecimalField(max_digits=6, decimal_places=2))) \
+                                                             DecimalField(max_digits=10, decimal_places=2))) \
                     .order_by('entry__id') \
                     .values('entry__id', 'entry_date', 'entered_by', 'tot_cost', 'tot_pieces', 'unitary_cost')
 
@@ -939,7 +940,7 @@ def manage_invitation(request, invitation):
             invitation.delete()
 
             return Response({'message': 'Invitation successfully accepted/declined.'},
-                            status=HTTP_202_ACCEPTED)
+                            status=HTTP_200_OK)
 
     except ObjectDoesNotExist as oe:
         return Response(
@@ -1014,7 +1015,7 @@ def confirm_email(request, uidb64, token):
         user.userprofile.email_confirmed = True
         user.userprofile.save()
         return Response({'message': 'Account successfully verified.'},
-                        status=HTTP_202_ACCEPTED)
+                        status=HTTP_200_OK)
     else:
         # invalid link
         return Response({'error': 'Invalid link'},
@@ -1066,7 +1067,7 @@ def reset_password(request, uidb64, token):
 
                 return Response({'message': 'Password successfully reset, change password immediately '
                                             'in order to gain access in future.'},
-                                status=HTTP_202_ACCEPTED)
+                                status=HTTP_200_OK)
         except Exception as e:
             return Response({'error': 'Ops, there was an unexpected error: {}'.format(str(e))},
                             status=HTTP_500_INTERNAL_SERVER_ERROR)
@@ -1091,7 +1092,7 @@ def forgot_password(request):
         return Response({"error": "Email is required."},
                         status=HTTP_400_BAD_REQUEST)
     try:
-        user = AuthUser.objects.get(email=email)
+        user = AuthUser.objects.get(email=email, is_active=True)
     except ObjectDoesNotExist as oe:
         user = None
 

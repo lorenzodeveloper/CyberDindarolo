@@ -2,6 +2,7 @@ from django.contrib.auth.models import User as AuthUser
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
+from django.utils import timezone
 
 
 # ----------- MODELS -------------
@@ -20,7 +21,7 @@ class PiggyBank(models.Model):
 class Participate(models.Model):
     participant = models.ForeignKey('UserProfile', models.CASCADE)
     piggybank = models.ForeignKey(PiggyBank, models.CASCADE)
-    credit = models.DecimalField(max_digits=6, decimal_places=2, default=0)
+    credit = models.DecimalField(max_digits=10, decimal_places=2, default=0)
 
     class Meta:
         unique_together = (('participant', 'piggybank'),)
@@ -59,7 +60,7 @@ class Product(models.Model):
 class Stock(models.Model):
     product = models.ForeignKey(Product, models.DO_NOTHING)
     piggybank = models.ForeignKey(PiggyBank, models.DO_NOTHING)
-    unitary_price = models.DecimalField(max_digits=6, decimal_places=2)
+    unitary_price = models.DecimalField(max_digits=10, decimal_places=2)
     pieces = models.BigIntegerField()
     entry_date = models.DateTimeField()
     entered_by = models.ForeignKey('UserProfile', models.CASCADE)
@@ -74,7 +75,7 @@ class Entry(models.Model):
     piggybank = models.ForeignKey(PiggyBank, models.DO_NOTHING)
     entered_by = models.ForeignKey('UserProfile', models.CASCADE)
     entry_date = models.DateTimeField()
-    entry_price = models.DecimalField(max_digits=6, decimal_places=2)
+    entry_price = models.DecimalField(max_digits=10, decimal_places=2)
     # set quantity, this is different from pieces!
     set_quantity = models.BigIntegerField(default=1)
 
@@ -88,7 +89,7 @@ class Purchase(models.Model):
     piggybank = models.ForeignKey(PiggyBank, models.DO_NOTHING)
     purchaser = models.ForeignKey('UserProfile', models.CASCADE)
     purchase_date = models.DateTimeField()
-    unitary_purchase_price = models.DecimalField(max_digits=6, decimal_places=2)
+    unitary_purchase_price = models.DecimalField(max_digits=10, decimal_places=2)
     pieces = models.BigIntegerField()
 
     class Meta:
@@ -113,7 +114,7 @@ class Invitation(models.Model):
 @receiver(post_save, sender=AuthUser)
 def create_user_profile(sender, instance, created, **kwargs):
     if created:
-        UserProfile.objects.create(auth_user=instance)
+        UserProfile.objects.create(auth_user=instance, password_reset_date=timezone.now())
 
 
 @receiver(post_save, sender=AuthUser)
