@@ -362,6 +362,7 @@ class UserProfileViewSet(viewsets.ModelViewSet):
                             status=HTTP_404_NOT_FOUND)
 
         u_instance = up_instance.auth_user
+        old_email = u_instance.email
 
         # Various check
         if u_instance != request.user:
@@ -417,9 +418,7 @@ class UserProfileViewSet(viewsets.ModelViewSet):
                 # Email change mechanism
                 new_email = request.data.get("email", None)
                 if new_email is not None:
-
-                    old_email = u_instance.email
-                    if len(AuthUser.objects.filter(email=new_email)) == 1 \
+                    if len(AuthUser.objects.filter(email=new_email, is_active=True)) == 1 \
                             and new_email != old_email:
                         # Set flag and save and mail user
                         up_instance.email_confirmed = False
