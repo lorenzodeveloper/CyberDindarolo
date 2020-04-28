@@ -320,11 +320,11 @@ class ProductViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         product = self.get_object()
-        purchases = Purchase.objects.filter(product=product.id)
-        entries = Entry.objects.filter(product=product.id)
-        if product in purchases or product in entries:
+        purchases = Purchase.objects.filter(product_id=product.id)
+        entries = Entry.objects.filter(product_id=product.id)
+        if len(purchases) != 0 or len(entries) != 0:
             return Response({"error": "You don't have the permission to do that."
-                                      " The product was entered or bought by someone else"},
+                                      " The product was entered or bought by someone"},
                             status=HTTP_403_FORBIDDEN)
         product.delete()
         return Response(status=HTTP_204_NO_CONTENT)
