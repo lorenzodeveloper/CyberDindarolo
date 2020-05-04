@@ -205,7 +205,7 @@ def get_piggybanks_by_pattern(request, pattern):
 
 
 # ----------------------------------------------------
-# TODO: MAKE PATCH REQUESTS RETURN 200
+
 @permission_classes((IsAuthenticatedAndEmailConfirmed, HasNotTempPassword,))
 class PiggyBankViewSet(viewsets.ModelViewSet):
     """
@@ -339,24 +339,9 @@ class UserProfileViewSet(viewsets.ModelViewSet):
     queryset = UserProfile.objects.filter(auth_user__is_active=True)
     http_method_names = ['get', 'patch', 'delete']
 
-    """def retrieve(self, request, *args, **kwargs):
-        pk = int(kwargs.get('pk'))
-        try:
-            up_instance = self.queryset.get(pk=pk)
-        except UserProfile.DoesNotExist as de:
-            return Response({"detail": "Not found."},
-                            status=HTTP_404_NOT_FOUND)
-
-        if pk == request.user.id:
-            return Response(UserProfileSerializer(up_instance).data,
-                            status=HTTP_200_OK)
-        else:
-            return Response(UserProfileWithoutPBSerializer(up_instance).data,
-                            status=HTTP_200_OK)"""
-
     def partial_update(self, request, *args, **kwargs):
         try:
-             up_instance = self.queryset.get(pk=kwargs.get('pk'))
+            up_instance = self.queryset.get(pk=kwargs.get('pk'))
         except UserProfile.DoesNotExist as de:
             return Response({"detail": "Not found."},
                             status=HTTP_404_NOT_FOUND)
